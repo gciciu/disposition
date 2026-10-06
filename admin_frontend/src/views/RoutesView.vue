@@ -182,6 +182,7 @@ onMounted(loadRoutes)
           <thead>
             <tr>
               <th>{{ t('deliveryRoutes.name') }}</th>
+              <th>{{ t('deliveryRoutes.courier') }}</th>
               <th>{{ t('deliveryRoutes.orders') }}</th>
               <th>{{ t('deliveryRoutes.created') }}</th>
               <th />
@@ -191,6 +192,9 @@ onMounted(loadRoutes)
             <tr v-for="route in routes" :key="route.id">
               <td :data-label="t('deliveryRoutes.name')">
                 {{ route.name }}
+              </td>
+              <td :data-label="t('deliveryRoutes.courier')">
+                {{ route.courier?.name || t('deliveryRoutes.courierUnassigned') }}
               </td>
               <td :data-label="t('deliveryRoutes.orders')">
                 {{ route.orderCount }}

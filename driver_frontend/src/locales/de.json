@@ -35,7 +35,12 @@
   },
   "routes": {
     "title": "Routen",
-    "empty": "Sie haben keine Routen"
+    "empty": "Sie haben keine Routen",
+    "loadFailed": "Routen konnten nicht geladen werden",
+    "loadDetailFailed": "Route konnte nicht geladen werden",
+    "ordersCount": "{count} Stopps",
+    "backToList": "Alle Routen",
+    "openMaps": "In Maps öffnen"
   },
   "errors": {
     "invalidCredentials": "Ungültiger Login oder Passwort",

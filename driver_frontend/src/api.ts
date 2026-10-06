@@ -161,3 +161,45 @@ export function logoutRequest(refreshToken: string) {
     body: JSON.stringify({ refresh_token: refreshToken }),
   }).catch(() => undefined);
 }
+
+export type RouteCourier = {
+  id: number | null;
+  name: string;
+  login: string;
+};
+
+export type RouteListItem = {
+  id: number;
+  name: string;
+  createdAt: string;
+  orderCount: number;
+  totalDurationText: string | null;
+  totalDistanceText: string | null;
+  mapsUrl: string | null;
+  courier: RouteCourier | null;
+};
+
+export type RouteOrder = {
+  id: number;
+  position: number;
+  clientName: string;
+  phone: string | null;
+  address: string;
+  formattedAddress: string | null;
+  addressValid: boolean;
+  products: string[];
+  travelDurationText: string | null;
+  travelDistanceText: string | null;
+};
+
+export type RouteDetail = RouteListItem & {
+  orders: RouteOrder[];
+};
+
+export function fetchMyRoutesRequest() {
+  return request<{ routes: RouteListItem[] }>("/api/driver/routes");
+}
+
+export function fetchMyRouteRequest(id: number) {
+  return request<{ route: RouteDetail }>(`/api/driver/routes/${id}`);
+}

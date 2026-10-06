@@ -35,7 +35,12 @@
   },
   "routes": {
     "title": "Routes",
-    "empty": "You have no routes"
+    "empty": "You have no routes",
+    "loadFailed": "Could not load routes",
+    "loadDetailFailed": "Could not load route",
+    "ordersCount": "{count} stops",
+    "backToList": "All routes",
+    "openMaps": "Open in Maps"
   },
   "errors": {
     "invalidCredentials": "Invalid login or password",

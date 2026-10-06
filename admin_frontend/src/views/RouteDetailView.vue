@@ -17,7 +17,10 @@ import CardBoxComponentEmpty from '@/components/CardBoxComponentEmpty.vue'
 import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
 import BaseButton from '@/components/BaseButton.vue'
+import BaseButtons from '@/components/BaseButtons.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
+import FormField from '@/components/FormField.vue'
+import FormControl from '@/components/FormControl.vue'
 import api from '@/api.js'
 
 const { t, locale } = useI18n()
@@ -27,6 +30,9 @@ const toast = useToast()
 
 const detail = ref(null)
 const loading = ref(false)
+const savingCourier = ref(false)
+const couriers = ref([])
+const selectedCourier = ref(null)
 
 const title = computed(() => {
   if (!detail.value) {
@@ -35,16 +41,60 @@ const title = computed(() => {
   return detail.value.name
 })
 
+const courierOptions = computed(() => [
+  { id: null, label: t('deliveryRoutes.courierUnassigned') },
+  ...couriers.value.map((courier) => ({
+    id: courier.id,
+    label: `${courier.name} (${courier.login})`,
+  })),
+])
+
+const syncSelectedCourier = () => {
+  const courierId = detail.value?.courier?.id ?? null
+  selectedCourier.value =
+    courierOptions.value.find((option) => option.id === courierId) ?? courierOptions.value[0]
+}
+
+const loadCouriers = async () => {
+  try {
+    const { data } = await api.get('/api/admin/couriers')
+    couriers.value = data.couriers ?? []
+  } catch {
+    couriers.value = []
+  }
+}
+
 const loadRoute = async () => {
   loading.value = true
   detail.value = null
   try {
     const { data } = await api.get(`/api/admin/routes/${route.params.id}`)
     detail.value = data.route
+    syncSelectedCourier()
   } catch (e) {
     toast.error(e.response?.data?.error || t('deliveryRoutes.loadDetailFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+const saveCourier = async () => {
+  if (!detail.value) {
+    return
+  }
+
+  savingCourier.value = true
+  try {
+    const { data } = await api.put(`/api/admin/routes/${detail.value.id}/courier`, {
+      courierId: selectedCourier.value?.id ?? null,
+    })
+    detail.value = data.route
+    syncSelectedCourier()
+    toast.success(t('deliveryRoutes.courierSaved'))
+  } catch (e) {
+    toast.error(e.response?.data?.error || t('deliveryRoutes.courierSaveFailed'))
+  } finally {
+    savingCourier.value = false
   }
 }
 
@@ -61,8 +111,23 @@ const formatDate = (value) => {
 
 const displayAddress = (order) => order.formattedAddress || order.address
 
-onMounted(loadRoute)
-watch(() => route.params.id, loadRoute)
+onMounted(async () => {
+  await loadCouriers()
+  await loadRoute()
+})
+
+watch(
+  () => route.params.id,
+  async () => {
+    await loadRoute()
+  },
+)
+
+watch(courierOptions, () => {
+  if (detail.value) {
+    syncSelectedCourier()
+  }
+})
 </script>
 
 <template>
@@ -110,6 +175,24 @@ watch(() => route.params.id, loadRoute)
               target="_blank"
             />
           </div>
+        </CardBox>
+
+        <CardBox class="mb-6">
+          <FormField :label="t('deliveryRoutes.courier')" :help="t('deliveryRoutes.courierHelp')">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div class="min-w-0 flex-1">
+                <FormControl v-model="selectedCourier" :options="courierOptions" />
+              </div>
+              <BaseButtons>
+                <BaseButton
+                  color="info"
+                  :label="savingCourier ? t('deliveryRoutes.courierSaving') : t('deliveryRoutes.courierSave')"
+                  :disabled="savingCourier"
+                  @click="saveCourier"
+                />
+              </BaseButtons>
+            </div>
+          </FormField>
         </CardBox>
 
         <CardBox v-if="!detail.orders?.length">

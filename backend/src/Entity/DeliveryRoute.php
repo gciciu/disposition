@@ -34,6 +34,10 @@ class DeliveryRoute
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
+    #[ORM\ManyToOne(inversedBy: 'routes')]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Courier $courier = null;
+
     /** @var Collection<int, DeliveryOrder> */
     #[ORM\OneToMany(targetEntity: DeliveryOrder::class, mappedBy: 'route', cascade: ['persist', 'remove'], orphanRemoval: true)]
     #[ORM\OrderBy(['position' => 'ASC'])]
@@ -116,6 +120,18 @@ class DeliveryRoute
         return $this->createdAt;
     }
 
+    public function getCourier(): ?Courier
+    {
+        return $this->courier;
+    }
+
+    public function setCourier(?Courier $courier): static
+    {
+        $this->courier = $courier;
+
+        return $this;
+    }
+
     /**
      * @return Collection<int, DeliveryOrder>
      */
@@ -154,11 +170,14 @@ class DeliveryRoute
      *     totalDistanceMeters: int|null,
      *     totalDurationText: string|null,
      *     totalDistanceText: string|null,
-     *     mapsUrl: string|null
+     *     mapsUrl: string|null,
+     *     courier: array{id: int|null, name: string, login: string}|null
      * }
      */
     public function toListArray(): array
     {
+        $courier = $this->courier;
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -174,6 +193,13 @@ class DeliveryRoute
                 ? self::formatDistance($this->totalDistanceMeters)
                 : null,
             'mapsUrl' => $this->mapsUrl,
+            'courier' => null !== $courier
+                ? [
+                    'id' => $courier->getId(),
+                    'name' => $courier->getUser()?->getName() ?? '',
+                    'login' => $courier->getUser()?->getEmail() ?? '',
+                ]
+                : null,
         ];
     }
 
@@ -189,6 +215,7 @@ class DeliveryRoute
      *     totalDurationText: string|null,
      *     totalDistanceText: string|null,
      *     mapsUrl: string|null,
+     *     courier: array{id: int|null, name: string, login: string}|null,
      *     orders: list<array<string, mixed>>
      * }
      */

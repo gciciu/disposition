@@ -1,0 +1,26 @@
+server {
+    listen 8087;
+    listen [::]:8087;
+    server_name _;
+    client_max_body_size 50m;
+
+    root /var/www/delivery.rawen.keenetic.pro/driver_frontend/dist;
+    index index.html;
+
+    location /api {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php8.5-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME /var/www/delivery.rawen.keenetic.pro/backend/public/index.php;
+        fastcgi_param SCRIPT_NAME /index.php;
+        fastcgi_param DOCUMENT_ROOT /var/www/delivery.rawen.keenetic.pro/backend/public;
+        fastcgi_read_timeout 120s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~ /\.(?!well-known) {
+        deny all;
+    }
+}

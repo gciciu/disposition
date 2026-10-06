@@ -4,6 +4,7 @@ namespace App\Controller\Api;
 
 use App\Entity\DeliveryRoute;
 use App\Exception\RouteAddressValidationException;
+use App\Repository\CourierRepository;
 use App\Repository\DeliveryRouteRepository;
 use App\Service\GoogleMapsService;
 use App\Service\RoutePdfImportService;
@@ -21,6 +22,7 @@ class DeliveryRouteController extends AbstractController
 {
     public function __construct(
         private readonly DeliveryRouteRepository $routes,
+        private readonly CourierRepository $couriers,
         private readonly RoutePdfImportService $importer,
         private readonly GoogleMapsService $googleMaps,
         private readonly EntityManagerInterface $em,
@@ -143,6 +145,42 @@ class DeliveryRouteController extends AbstractController
         } elseif ($points) {
             $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl($points));
         }
+
+        return $this->json(['route' => $route->toArray()]);
+    }
+
+    #[Route('/{id}/courier', name: 'api_admin_routes_assign_courier', methods: ['PUT'], requirements: ['id' => '\d+'])]
+    public function assignCourier(int $id, Request $request): JsonResponse
+    {
+        $route = $this->routes->find($id);
+        if (!$route instanceof DeliveryRoute) {
+            return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $payload = $request->toArray();
+        if (!\array_key_exists('courierId', $payload)) {
+            return $this->json(['error' => 'courierId is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $courierId = $payload['courierId'];
+        if (null === $courierId) {
+            $route->setCourier(null);
+            $this->em->flush();
+
+            return $this->json(['route' => $route->toArray()]);
+        }
+
+        if (!\is_int($courierId) && !(\is_string($courierId) && ctype_digit($courierId))) {
+            return $this->json(['error' => 'courierId must be an integer or null'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $courier = $this->couriers->find((int) $courierId);
+        if (null === $courier) {
+            return $this->json(['error' => 'Courier not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $route->setCourier($courier);
+        $this->em->flush();
 
         return $this->json(['route' => $route->toArray()]);
     }

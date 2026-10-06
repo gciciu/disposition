@@ -5,7 +5,7 @@ import { useAuth } from "./auth";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import ChangePasswordView from "./views/ChangePasswordView.vue";
 import LoginView from "./views/LoginView.vue";
-import NoRoutesView from "./views/NoRoutesView.vue";
+import RoutesHomeView from "./views/RoutesHomeView.vue";
 
 const { t } = useI18n();
 const { bootstrap, isAuthenticated, mustChangePassword } = useAuth();
@@ -23,12 +23,12 @@ const screen = computed(() => {
   if (mustChangePassword.value) {
     return "change-password";
   }
-  return "no-routes";
+  return "routes";
 });
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :class="{ 'app-shell--wide': screen === 'routes' }">
     <div class="app-shell__lang">
       <LanguageSwitcher />
     </div>
@@ -36,6 +36,6 @@ const screen = computed(() => {
     <div v-if="!ready" class="loading-copy">{{ t("common.loading") }}</div>
     <LoginView v-else-if="screen === 'login'" />
     <ChangePasswordView v-else-if="screen === 'change-password'" />
-    <NoRoutesView v-else />
+    <RoutesHomeView v-else />
   </main>
 </template>

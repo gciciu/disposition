@@ -111,8 +111,11 @@ API:
 - `^/api/admin` — только админы
 - `GET /api/admin/routes` — список маршрутов
 - `GET /api/admin/routes/{id}` — маршрут с заказами
+- `PUT /api/admin/routes/{id}/courier` — назначить курьера (`{ "courierId": number|null }`)
 - `POST /api/admin/routes/import` — импорт PDF маршрута (`multipart/form-data`, поле `file`; только первая таблица; адреса проверяются через Google Geocoding)
 - `DELETE /api/admin/routes/{id}` — удаление маршрута вместе с заказами
+- `GET /api/driver/routes` — маршруты текущего курьера
+- `GET /api/driver/routes/{id}` — детали назначенного маршрута
 
 ### Google Maps
 
