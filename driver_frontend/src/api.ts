@@ -13,7 +13,8 @@ export type LoginResponse = {
   user: AuthUser;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
 
 const AUTH_KEYS = ["auth_token", "auth_user", "refresh_token"] as const;
 
