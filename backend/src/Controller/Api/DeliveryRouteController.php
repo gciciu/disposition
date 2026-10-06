@@ -1,0 +1,115 @@
+<?php
+
+namespace App\Controller\Api;
+
+use App\Entity\DeliveryRoute;
+use App\Exception\RouteAddressValidationException;
+use App\Repository\DeliveryRouteRepository;
+use App\Service\GoogleMapsService;
+use App\Service\RoutePdfImportService;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
+
+#[Route('/api/admin/routes')]
+#[IsGranted('ROLE_ADMIN')]
+class DeliveryRouteController extends AbstractController
+{
+    public function __construct(
+        private readonly DeliveryRouteRepository $routes,
+        private readonly RoutePdfImportService $importer,
+        private readonly GoogleMapsService $googleMaps,
+        private readonly EntityManagerInterface $em,
+    ) {
+    }
+
+    #[Route('', name: 'api_admin_routes_list', methods: ['GET'])]
+    public function list(): JsonResponse
+    {
+        $items = array_map(
+            static fn (DeliveryRoute $route): array => $route->toListArray(),
+            $this->routes->findAllNewestFirst(),
+        );
+
+        return $this->json(['routes' => $items]);
+    }
+
+    #[Route('/import', name: 'api_admin_routes_import', methods: ['POST'])]
+    public function import(Request $request): JsonResponse
+    {
+        if (!$this->googleMaps->isConfigured()) {
+            return $this->json([
+                'error' => 'GOOGLE_MAPS_API_KEY is not configured',
+            ], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+
+        $file = $request->files->get('file');
+        if (!$file) {
+            return $this->json(['error' => 'PDF file is required (field name: file)'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $mime = (string) $file->getMimeType();
+        $original = strtolower((string) $file->getClientOriginalName());
+        $isPdf = str_ends_with($original, '.pdf')
+            || \in_array($mime, ['application/pdf', 'application/x-pdf'], true);
+
+        if (!$isPdf) {
+            return $this->json(['error' => 'Only PDF files are supported'], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $route = $this->importer->import($file);
+        } catch (RouteAddressValidationException $e) {
+            return $this->json([
+                'error' => $e->getMessage(),
+                'invalidAddresses' => $e->getInvalidAddresses(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        } catch (\RuntimeException $e) {
+            if (str_contains($e->getMessage(), 'GOOGLE_MAPS_API_KEY')) {
+                return $this->json(['error' => $e->getMessage()], Response::HTTP_SERVICE_UNAVAILABLE);
+            }
+
+            return $this->json(['error' => 'Import failed: '.$e->getMessage()], Response::HTTP_BAD_GATEWAY);
+        } catch (\InvalidArgumentException $e) {
+            return $this->json(['error' => $e->getMessage()], Response::HTTP_UNPROCESSABLE_ENTITY);
+        } catch (\Throwable $e) {
+            return $this->json(['error' => 'Import failed: '.$e->getMessage()], Response::HTTP_BAD_GATEWAY);
+        }
+
+        $this->em->persist($route);
+        $this->em->flush();
+
+        return $this->json([
+            'route' => $route->toArray(),
+        ], Response::HTTP_CREATED);
+    }
+
+    #[Route('/{id}', name: 'api_admin_routes_show', methods: ['GET'], requirements: ['id' => '\d+'])]
+    public function show(int $id): JsonResponse
+    {
+        $route = $this->routes->find($id);
+        if (!$route instanceof DeliveryRoute) {
+            return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        return $this->json(['route' => $route->toArray()]);
+    }
+
+    #[Route('/{id}', name: 'api_admin_routes_delete', methods: ['DELETE'], requirements: ['id' => '\d+'])]
+    public function delete(int $id): JsonResponse
+    {
+        $route = $this->routes->find($id);
+        if (!$route instanceof DeliveryRoute) {
+            return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $this->em->remove($route);
+        $this->em->flush();
+
+        return $this->json(null, Response::HTTP_NO_CONTENT);
+    }
+}
