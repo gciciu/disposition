@@ -8,7 +8,7 @@ const year = new Date().getFullYear()
 </script>
 
 <template>
-  <footer class="px-6 py-2" :class="containerMaxW">
+  <footer class="mt-auto shrink-0 px-6 py-2" :class="containerMaxW">
     <BaseLevel>
       <div class="flex flex-col items-center justify-center gap-6 lg:flex-row lg:justify-start">
         <b>&copy;{{ year }} {{ t('app.title') }}</b>

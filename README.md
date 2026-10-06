@@ -109,14 +109,12 @@ API:
 - `POST /api/login` — `{ "email", "password" }` → JWT
 - `GET /api/me` — текущий пользователь (Bearer token)
 - `^/api/admin` — только админы
-- `POST /api/admin/route-planning/build` — проверка адресов в Google Maps + время участков + ссылка на маршрут
-- `POST /api/admin/route-planning/validate-address` — проверка одного адреса
 - `GET /api/admin/routes` — список маршрутов
 - `GET /api/admin/routes/{id}` — маршрут с заказами
 - `POST /api/admin/routes/import` — импорт PDF маршрута (`multipart/form-data`, поле `file`; только первая таблица; адреса проверяются через Google Geocoding)
 - `DELETE /api/admin/routes/{id}` — удаление маршрута вместе с заказами
 
-### Google Maps (route planning)
+### Google Maps
 
 В Google Cloud Console включите **Geocoding API** и **Directions API**, создайте API key.
 
@@ -126,4 +124,4 @@ API:
 GOOGLE_MAPS_API_KEY=your_key_here
 ```
 
-Админ-страница: **Route planning** (`#/route-planning`).
+Ключ используется при импорте PDF-маршрутов (проверка адресов и расчёт времени/расстояния между остановками).

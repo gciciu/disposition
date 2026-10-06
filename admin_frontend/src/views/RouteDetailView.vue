@@ -8,7 +8,9 @@ import {
   mdiAlertCircle,
   mdiCheckCircle,
   mdiLoading,
+  mdiGoogleMaps,
 } from '@mdi/js'
+import { useToast } from 'vue-toastification'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
 import CardBoxComponentEmpty from '@/components/CardBoxComponentEmpty.vue'
@@ -16,16 +18,15 @@ import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
-import NotificationBar from '@/components/NotificationBar.vue'
 import api from '@/api.js'
 
 const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const detail = ref(null)
 const loading = ref(false)
-const error = ref('')
 
 const title = computed(() => {
   if (!detail.value) {
@@ -36,13 +37,12 @@ const title = computed(() => {
 
 const loadRoute = async () => {
   loading.value = true
-  error.value = ''
   detail.value = null
   try {
     const { data } = await api.get(`/api/admin/routes/${route.params.id}`)
     detail.value = data.route
   } catch (e) {
-    error.value = e.response?.data?.error || t('deliveryRoutes.loadDetailFailed')
+    toast.error(e.response?.data?.error || t('deliveryRoutes.loadDetailFailed'))
   } finally {
     loading.value = false
   }
@@ -77,10 +77,6 @@ watch(() => route.params.id, loadRoute)
         />
       </SectionTitleLineWithButton>
 
-      <NotificationBar v-if="error" color="danger" :icon="mdiAlertCircle" class="mb-6">
-        {{ error }}
-      </NotificationBar>
-
       <CardBox v-if="loading" class="mb-6">
         <div class="flex items-center gap-2 p-4 text-gray-500">
           <BaseIcon :path="mdiLoading" class="animate-spin" size="20" />
@@ -90,19 +86,29 @@ watch(() => route.params.id, loadRoute)
 
       <template v-else-if="detail">
         <CardBox class="mb-6">
-          <div class="grid gap-3 sm:grid-cols-3">
-            <div>
-              <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.sourceFile') }}</div>
-              <div>{{ detail.sourceFilename || '—' }}</div>
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div class="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.orders') }}</div>
+                <div>{{ detail.orderCount }}</div>
+              </div>
+              <div>
+                <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.created') }}</div>
+                <div>{{ formatDate(detail.createdAt) }}</div>
+              </div>
+              <div v-if="detail.totalDurationText">
+                <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.total') }}</div>
+                <div>{{ detail.totalDurationText }} · {{ detail.totalDistanceText }}</div>
+              </div>
             </div>
-            <div>
-              <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.orders') }}</div>
-              <div>{{ detail.orderCount }}</div>
-            </div>
-            <div>
-              <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.created') }}</div>
-              <div>{{ formatDate(detail.createdAt) }}</div>
-            </div>
+            <BaseButton
+              v-if="detail.mapsUrl"
+              color="success"
+              :icon="mdiGoogleMaps"
+              :label="t('deliveryRoutes.openMaps')"
+              :href="detail.mapsUrl"
+              target="_blank"
+            />
           </div>
         </CardBox>
 
@@ -116,18 +122,18 @@ watch(() => route.params.id, loadRoute)
               <tr>
                 <th>#</th>
                 <th>{{ t('deliveryRoutes.clientName') }}</th>
-                <th>{{ t('deliveryRoutes.phone') }}</th>
-                <th>{{ t('deliveryRoutes.address') }}</th>
                 <th>{{ t('deliveryRoutes.products') }}</th>
+                <th>{{ t('deliveryRoutes.duration') }}</th>
+                <th>{{ t('deliveryRoutes.distance') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="order in detail.orders" :key="order.id">
                 <td :data-label="'#'">{{ order.position }}</td>
-                <td :data-label="t('deliveryRoutes.clientName')">{{ order.clientName }}</td>
-                <td :data-label="t('deliveryRoutes.phone')">{{ order.phone || '—' }}</td>
-                <td :data-label="t('deliveryRoutes.address')">
-                  <div class="flex items-start gap-2">
+                <td :data-label="t('deliveryRoutes.clientName')">
+                  <div class="font-medium">{{ order.clientName }}</div>
+                  <div class="mt-1 text-sm text-gray-600">{{ order.phone || '—' }}</div>
+                  <div class="mt-1 flex items-start gap-2 text-sm">
                     <BaseIcon
                       :path="order.addressValid ? mdiCheckCircle : mdiAlertCircle"
                       :class="order.addressValid ? 'text-emerald-600' : 'text-red-600'"
@@ -151,6 +157,18 @@ watch(() => route.params.id, loadRoute)
                       {{ product }}
                     </li>
                   </ul>
+                </td>
+                <td
+                  :data-label="t('deliveryRoutes.duration')"
+                  class="font-semibold whitespace-nowrap"
+                >
+                  {{ order.travelDurationText || '—' }}
+                </td>
+                <td
+                  :data-label="t('deliveryRoutes.distance')"
+                  class="whitespace-nowrap"
+                >
+                  {{ order.travelDistanceText || '—' }}
                 </td>
               </tr>
             </tbody>

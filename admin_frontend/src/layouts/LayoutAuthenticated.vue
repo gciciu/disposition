@@ -38,7 +38,7 @@ const menuClick = async (event, item) => {
   }
 
   if (item.isLogout) {
-    authStore.logout()
+    await authStore.logout()
     await router.push('/login')
   }
 }
@@ -52,7 +52,7 @@ const menuClick = async (event, item) => {
   >
     <div
       :class="[layoutAsidePadding, { 'ml-60 lg:ml-0': isAsideMobileExpanded }]"
-      class="min-h-screen w-screen bg-gray-50 pt-14 transition-(--transition-position) lg:w-auto dark:bg-slate-800 dark:text-slate-100"
+      class="flex min-h-screen w-screen flex-col bg-gray-50 pt-14 transition-(--transition-position) lg:w-auto dark:bg-slate-800 dark:text-slate-100"
     >
       <NavBar
         :menu="menuNavBar"
@@ -83,8 +83,10 @@ const menuClick = async (event, item) => {
         @menu-click="menuClick"
         @aside-lg-close-click="isAsideLgActive = false"
       />
-      <slot />
-      <FooterBar />
+      <div class="flex-1">
+        <slot />
+      </div>
+      <FooterBar class="mt-auto shrink-0" />
     </div>
   </div>
 </template>

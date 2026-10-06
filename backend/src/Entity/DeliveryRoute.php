@@ -22,6 +22,15 @@ class DeliveryRoute
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $sourceFilename = null;
 
+    #[ORM\Column(nullable: true)]
+    private ?int $totalDurationSeconds = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?int $totalDistanceMeters = null;
+
+    #[ORM\Column(length: 2048, nullable: true)]
+    private ?string $mapsUrl = null;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -65,6 +74,43 @@ class DeliveryRoute
         return $this;
     }
 
+    public function getTotalDurationSeconds(): ?int
+    {
+        return $this->totalDurationSeconds;
+    }
+
+    public function setTotalDurationSeconds(?int $totalDurationSeconds): static
+    {
+        $this->totalDurationSeconds = $totalDurationSeconds;
+
+        return $this;
+    }
+
+    public function getTotalDistanceMeters(): ?int
+    {
+        return $this->totalDistanceMeters;
+    }
+
+    public function setTotalDistanceMeters(?int $totalDistanceMeters): static
+    {
+        $this->totalDistanceMeters = $totalDistanceMeters;
+
+        return $this;
+    }
+
+    public function getMapsUrl(): ?string
+    {
+        return $this->mapsUrl;
+    }
+
+    public function setMapsUrl(?string $mapsUrl): static
+    {
+        $mapsUrl = null !== $mapsUrl ? trim($mapsUrl) : null;
+        $this->mapsUrl = '' === $mapsUrl ? null : $mapsUrl;
+
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
@@ -103,7 +149,12 @@ class DeliveryRoute
      *     name: string,
      *     sourceFilename: string|null,
      *     createdAt: string,
-     *     orderCount: int
+     *     orderCount: int,
+     *     totalDurationSeconds: int|null,
+     *     totalDistanceMeters: int|null,
+     *     totalDurationText: string|null,
+     *     totalDistanceText: string|null,
+     *     mapsUrl: string|null
      * }
      */
     public function toListArray(): array
@@ -114,6 +165,15 @@ class DeliveryRoute
             'sourceFilename' => $this->sourceFilename,
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
             'orderCount' => $this->orders->count(),
+            'totalDurationSeconds' => $this->totalDurationSeconds,
+            'totalDistanceMeters' => $this->totalDistanceMeters,
+            'totalDurationText' => null !== $this->totalDurationSeconds
+                ? self::formatDuration($this->totalDurationSeconds)
+                : null,
+            'totalDistanceText' => null !== $this->totalDistanceMeters
+                ? self::formatDistance($this->totalDistanceMeters)
+                : null,
+            'mapsUrl' => $this->mapsUrl,
         ];
     }
 
@@ -124,6 +184,11 @@ class DeliveryRoute
      *     sourceFilename: string|null,
      *     createdAt: string,
      *     orderCount: int,
+     *     totalDurationSeconds: int|null,
+     *     totalDistanceMeters: int|null,
+     *     totalDurationText: string|null,
+     *     totalDistanceText: string|null,
+     *     mapsUrl: string|null,
      *     orders: list<array<string, mixed>>
      * }
      */
@@ -136,5 +201,26 @@ class DeliveryRoute
                 $this->orders->toArray(),
             ),
         ];
+    }
+
+    private static function formatDuration(int $seconds): string
+    {
+        $hours = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+
+        if ($hours > 0) {
+            return sprintf('%dh %dm', $hours, $minutes);
+        }
+
+        return sprintf('%dm', max(1, $minutes));
+    }
+
+    private static function formatDistance(int $meters): string
+    {
+        if ($meters >= 1000) {
+            return sprintf('%.1f km', $meters / 1000);
+        }
+
+        return sprintf('%d m', $meters);
     }
 }

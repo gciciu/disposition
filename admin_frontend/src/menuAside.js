@@ -4,7 +4,6 @@ import {
   mdiTruckDelivery,
   mdiClipboardListOutline,
   mdiLogout,
-  mdiMapMarkerPath,
   mdiMonitor,
   mdiRoutes,
   mdiSquareEditOutline,
@@ -21,11 +20,6 @@ export const menuAsideMain = [
     to: '/routes',
     labelKey: 'menu.deliveryRoutes',
     icon: mdiRoutes,
-  },
-  {
-    to: '/route-planning',
-    labelKey: 'menu.routePlanning',
-    icon: mdiMapMarkerPath,
   },
   {
     to: '/tables',

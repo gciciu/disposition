@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { mdiTruckDelivery, mdiAlertCircle, mdiArrowLeft } from '@mdi/js'
+import { useToast } from 'vue-toastification'
+import { mdiTruckDelivery, mdiArrowLeft } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
 import FormField from '@/components/FormField.vue'
@@ -11,12 +12,12 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
-import NotificationBar from '@/components/NotificationBar.vue'
 import api from '@/api.js'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const isNew = computed(() => route.name === 'courier-new')
 
@@ -28,8 +29,6 @@ const form = reactive({
 
 const loading = ref(false)
 const saving = ref(false)
-const error = ref('')
-const success = ref('')
 
 const pageTitle = computed(() =>
   isNew.value ? t('couriers.createTitle') : t('couriers.editTitle', { name: form.name || '…' }),
@@ -44,7 +43,6 @@ const loadCourier = async () => {
   }
 
   loading.value = true
-  error.value = ''
   try {
     const { data } = await api.get(`/api/admin/couriers/${route.params.id}`)
     const courier = data.courier
@@ -52,7 +50,7 @@ const loadCourier = async () => {
     form.login = courier.login ?? ''
     form.password = ''
   } catch (e) {
-    error.value = e.response?.data?.error || t('couriers.loadFailed')
+    toast.error(e.response?.data?.error || t('couriers.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -60,8 +58,6 @@ const loadCourier = async () => {
 
 const submit = async () => {
   saving.value = true
-  error.value = ''
-  success.value = ''
 
   const payload = {
     name: form.name.trim(),
@@ -75,17 +71,17 @@ const submit = async () => {
   try {
     if (isNew.value) {
       const { data } = await api.post('/api/admin/couriers', payload)
-      success.value = t('couriers.created')
+      toast.success(t('couriers.created'))
       await router.replace({ name: 'courier', params: { id: data.courier.id } })
     } else {
       const { data } = await api.put(`/api/admin/couriers/${route.params.id}`, payload)
       form.name = data.courier.name ?? ''
       form.login = data.courier.login ?? ''
       form.password = ''
-      success.value = t('couriers.updated')
+      toast.success(t('couriers.updated'))
     }
   } catch (e) {
-    error.value = e.response?.data?.error || t('couriers.saveFailed')
+    toast.error(e.response?.data?.error || t('couriers.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -112,13 +108,6 @@ onMounted(loadCourier)
           :to="{ name: 'couriers' }"
         />
       </SectionTitleLineWithButton>
-
-      <NotificationBar v-if="error" color="danger" :icon="mdiAlertCircle" class="mb-6">
-        {{ error }}
-      </NotificationBar>
-      <NotificationBar v-if="success" color="success" class="mb-6">
-        {{ success }}
-      </NotificationBar>
 
       <CardBox v-if="!loading" is-form @submit.prevent="submit">
         <FormField :label="t('couriers.name')" :help="t('couriers.nameHelp')">

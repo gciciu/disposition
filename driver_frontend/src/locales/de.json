@@ -1,0 +1,45 @@
+{
+  "lang": {
+    "en": "English",
+    "de": "Deutsch",
+    "switch": "Sprache"
+  },
+  "common": {
+    "loading": "Laden…",
+    "logout": "Abmelden",
+    "brand": "Delivery"
+  },
+  "login": {
+    "title": "Fahrer-Anmeldung",
+    "email": "Login (E-Mail)",
+    "password": "Passwort",
+    "remember": "Angemeldet bleiben",
+    "submit": "Anmelden",
+    "submitting": "Anmeldung…",
+    "failed": "Anmeldung fehlgeschlagen",
+    "driversOnly": "Nur für Fahrer"
+  },
+  "password": {
+    "title": "Neues Passwort festlegen",
+    "greeting": "Hallo{name}. Wählen Sie Ihr eigenes Passwort anstelle des vom Administrator vergebenen.",
+    "greetingName": ", {name}",
+    "newPassword": "Neues Passwort",
+    "confirmPassword": "Passwort bestätigen",
+    "placeholderMin": "Mindestens 8 Zeichen",
+    "placeholderConfirm": "Passwort wiederholen",
+    "submit": "Passwort speichern",
+    "submitting": "Speichern…",
+    "tooShort": "Das Passwort muss mindestens 8 Zeichen lang sein",
+    "mismatch": "Die Passwörter stimmen nicht überein",
+    "failed": "Passwort konnte nicht gespeichert werden"
+  },
+  "routes": {
+    "title": "Routen",
+    "empty": "Sie haben keine Routen"
+  },
+  "errors": {
+    "invalidCredentials": "Ungültiger Login oder Passwort",
+    "accountDisabled": "Konto deaktiviert",
+    "sessionExpired": "Sitzung abgelaufen"
+  }
+}

@@ -41,6 +41,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private bool $isActive = true;
 
     #[ORM\Column]
+    private bool $mustChangePassword = false;
+
+    #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
     #[ORM\OneToOne(mappedBy: 'user')]
@@ -148,6 +151,18 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    public function mustChangePassword(): bool
+    {
+        return $this->mustChangePassword;
+    }
+
+    public function setMustChangePassword(bool $mustChangePassword): static
+    {
+        $this->mustChangePassword = $mustChangePassword;
+
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
@@ -179,7 +194,8 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      *     email: string,
      *     name: string,
      *     roles: list<string>,
-     *     isActive: bool
+     *     isActive: bool,
+     *     mustChangePassword: bool
      * }
      */
     public function toArray(): array
@@ -190,6 +206,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
             'name' => $this->name,
             'roles' => $this->getRoles(),
             'isActive' => $this->isActive,
+            'mustChangePassword' => $this->mustChangePassword,
         ];
     }
 }

@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import Home from '@/views/HomeView.vue'
+import { ensureFreshAccessToken } from '@/api.js'
 import { useAuthStore } from '@/stores/auth.js'
 
 const routes = [
@@ -16,16 +17,6 @@ const routes = [
     path: '/dashboard',
     name: 'dashboard',
     component: Home,
-  },
-  {
-    meta: {
-      titleKey: 'routes.routePlanning',
-      requiresAuth: true,
-      requiresAdmin: true,
-    },
-    path: '/route-planning',
-    name: 'route-planning',
-    component: () => import('@/views/RoutePlanningView.vue'),
   },
   {
     meta: {
@@ -172,17 +163,33 @@ router.beforeEach(async (to) => {
       return { name: 'login', query: { redirect: to.fullPath } }
     }
 
+    try {
+      await ensureFreshAccessToken()
+    } catch {
+      await authStore.logout()
+      return {
+        name: 'login',
+        query: { expired: '1', redirect: to.fullPath },
+      }
+    }
+
     if (!authStore.user) {
       try {
         await authStore.fetchMe()
-      } catch {
-        authStore.logout()
+      } catch (error) {
+        await authStore.logout()
+        if (error.response?.status === 401) {
+          return {
+            name: 'login',
+            query: { expired: '1', redirect: to.fullPath },
+          }
+        }
         return { name: 'login' }
       }
     }
 
     if (to.meta.requiresAdmin && !authStore.isAdmin) {
-      authStore.logout()
+      await authStore.logout()
       return { name: 'login' }
     }
   }

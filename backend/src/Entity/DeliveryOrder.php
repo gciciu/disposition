@@ -45,6 +45,14 @@ class DeliveryOrder
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $placeId = null;
 
+    /** Travel time from the previous stop; null for the first order. */
+    #[ORM\Column(nullable: true)]
+    private ?int $travelDurationSeconds = null;
+
+    /** Travel distance from the previous stop; null for the first order. */
+    #[ORM\Column(nullable: true)]
+    private ?int $travelDistanceMeters = null;
+
     /**
      * Product lines, e.g. ["1 x HZ BS Weiß / 19 mm, 120 x 60 cm / Weiß"].
      *
@@ -189,6 +197,30 @@ class DeliveryOrder
         return $this;
     }
 
+    public function getTravelDurationSeconds(): ?int
+    {
+        return $this->travelDurationSeconds;
+    }
+
+    public function setTravelDurationSeconds(?int $travelDurationSeconds): static
+    {
+        $this->travelDurationSeconds = $travelDurationSeconds;
+
+        return $this;
+    }
+
+    public function getTravelDistanceMeters(): ?int
+    {
+        return $this->travelDistanceMeters;
+    }
+
+    public function setTravelDistanceMeters(?int $travelDistanceMeters): static
+    {
+        $this->travelDistanceMeters = $travelDistanceMeters;
+
+        return $this;
+    }
+
     /**
      * @return list<string>
      */
@@ -234,6 +266,10 @@ class DeliveryOrder
      *     lat: float|null,
      *     lng: float|null,
      *     placeId: string|null,
+     *     travelDurationSeconds: int|null,
+     *     travelDistanceMeters: int|null,
+     *     travelDurationText: string|null,
+     *     travelDistanceText: string|null,
      *     products: list<string>,
      *     createdAt: string
      * }
@@ -251,8 +287,37 @@ class DeliveryOrder
             'lat' => $this->lat,
             'lng' => $this->lng,
             'placeId' => $this->placeId,
+            'travelDurationSeconds' => $this->travelDurationSeconds,
+            'travelDistanceMeters' => $this->travelDistanceMeters,
+            'travelDurationText' => null !== $this->travelDurationSeconds
+                ? self::formatDuration($this->travelDurationSeconds)
+                : null,
+            'travelDistanceText' => null !== $this->travelDistanceMeters
+                ? self::formatDistance($this->travelDistanceMeters)
+                : null,
             'products' => $this->products,
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
         ];
+    }
+
+    private static function formatDuration(int $seconds): string
+    {
+        $hours = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+
+        if ($hours > 0) {
+            return sprintf('%dh %dm', $hours, $minutes);
+        }
+
+        return sprintf('%dm', max(1, $minutes));
+    }
+
+    private static function formatDistance(int $meters): string
+    {
+        if ($meters >= 1000) {
+            return sprintf('%.1f km', $meters / 1000);
+        }
+
+        return sprintf('%d m', $meters);
     }
 }

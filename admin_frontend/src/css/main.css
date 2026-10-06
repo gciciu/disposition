@@ -36,3 +36,9 @@
     border-color: var(--color-gray-200, currentColor);
   }
 }
+
+/* Multiline system toasts (e.g. import validation details) */
+.Vue-Toastification__toast-body {
+  white-space: pre-line;
+}
+

@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { mdiTruckDelivery, mdiPlus, mdiEye, mdiTrashCan, mdiAlertCircle } from '@mdi/js'
+import { useToast } from 'vue-toastification'
+import { mdiTruckDelivery, mdiPlus, mdiEye, mdiTrashCan } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
 import CardBoxModal from '@/components/CardBoxModal.vue'
@@ -12,15 +13,14 @@ import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.
 import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseLevel from '@/components/BaseLevel.vue'
-import NotificationBar from '@/components/NotificationBar.vue'
 import api from '@/api.js'
 
 const { t } = useI18n()
 const router = useRouter()
+const toast = useToast()
 
 const couriers = ref([])
 const loading = ref(false)
-const error = ref('')
 const deleteTarget = ref(null)
 const deleting = ref(false)
 
@@ -35,12 +35,11 @@ const isDeleteModalActive = computed({
 
 const loadCouriers = async () => {
   loading.value = true
-  error.value = ''
   try {
     const { data } = await api.get('/api/admin/couriers')
     couriers.value = data.couriers ?? []
   } catch (e) {
-    error.value = e.response?.data?.error || t('couriers.loadFailed')
+    toast.error(e.response?.data?.error || t('couriers.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -52,7 +51,7 @@ const openCourier = (id) => {
 
 const askDelete = (courier) => {
   if (!courier.canDelete) {
-    error.value = t('couriers.deleteBlocked')
+    toast.warning(t('couriers.deleteBlocked'))
     return
   }
   deleteTarget.value = courier
@@ -65,13 +64,13 @@ const confirmDelete = async () => {
   }
 
   deleting.value = true
-  error.value = ''
   try {
     await api.delete(`/api/admin/couriers/${target.id}`)
+    toast.success(t('couriers.deleted'))
     deleteTarget.value = null
     await loadCouriers()
   } catch (e) {
-    error.value = e.response?.data?.error || t('couriers.deleteFailed')
+    toast.error(e.response?.data?.error || t('couriers.deleteFailed'))
     deleteTarget.value = null
   } finally {
     deleting.value = false
@@ -92,10 +91,6 @@ onMounted(loadCouriers)
           :to="{ name: 'courier-new' }"
         />
       </SectionTitleLineWithButton>
-
-      <NotificationBar v-if="error" color="danger" :icon="mdiAlertCircle">
-        {{ error }}
-      </NotificationBar>
 
       <CardBox v-if="!loading && couriers.length === 0">
         <CardBoxComponentEmpty />

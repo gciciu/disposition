@@ -96,6 +96,54 @@ class DeliveryRouteController extends AbstractController
             return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
         }
 
+        $orders = $route->getOrders()->toArray();
+        $points = [];
+        foreach ($orders as $order) {
+            $lat = $order->getLat();
+            $lng = $order->getLng();
+            if (null === $lat || null === $lng) {
+                $points = [];
+                break;
+            }
+            $points[] = [
+                'formattedAddress' => $order->getFormattedAddress() ?? $order->getAddress(),
+                'lat' => $lat,
+                'lng' => $lng,
+                'placeId' => $order->getPlaceId(),
+            ];
+        }
+
+        if (\count($points) >= 2 && $this->googleMaps->isConfigured()) {
+            try {
+                $built = $this->googleMaps->buildTruckRoute($points);
+                $segmentsByToIndex = [];
+                foreach ($built['segments'] as $segment) {
+                    $segmentsByToIndex[$segment['toIndex']] = $segment;
+                }
+
+                foreach ($orders as $index => $order) {
+                    $segment = $segmentsByToIndex[$index] ?? null;
+                    $order
+                        ->setTravelDurationSeconds($segment['durationSeconds'] ?? null)
+                        ->setTravelDistanceMeters($segment['distanceMeters'] ?? null);
+                }
+
+                $route
+                    ->setTotalDurationSeconds($built['totalDurationSeconds'])
+                    ->setTotalDistanceMeters($built['totalDistanceMeters'])
+                    ->setMapsUrl($built['mapsUrl']);
+
+                $this->em->flush();
+            } catch (\Throwable) {
+                // Keep stored import values if live recalculation fails.
+                if ($points) {
+                    $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl($points));
+                }
+            }
+        } elseif ($points) {
+            $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl($points));
+        }
+
         return $this->json(['route' => $route->toArray()]);
     }
 

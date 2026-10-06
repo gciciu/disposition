@@ -145,6 +145,10 @@ class GoogleMapsService
             'avoid' => 'ferries',
             'units' => 'metric',
             'language' => 'de',
+            'region' => 'de',
+            // Align travel time with Google Maps UI (traffic-aware estimate).
+            'departure_time' => 'now',
+            'traffic_model' => 'best_guess',
             'key' => $this->apiKey,
         ];
 
@@ -173,7 +177,8 @@ class GoogleMapsService
         $totalDistanceMeters = 0;
 
         foreach ($legs as $index => $leg) {
-            $durationSeconds = (int) ($leg['duration']['value'] ?? 0);
+            // Prefer traffic-aware duration when Google returns it (requires departure_time).
+            $durationSeconds = (int) ($leg['duration_in_traffic']['value'] ?? $leg['duration']['value'] ?? 0);
             $distanceMeters = (int) ($leg['distance']['value'] ?? 0);
             $totalDurationSeconds += $durationSeconds;
             $totalDistanceMeters += $distanceMeters;
@@ -184,9 +189,9 @@ class GoogleMapsService
                 'fromAddress' => $leg['start_address'] ?? ($points[$index]['formattedAddress'] ?? ''),
                 'toAddress' => $leg['end_address'] ?? ($points[$index + 1]['formattedAddress'] ?? ''),
                 'durationSeconds' => $durationSeconds,
-                'durationText' => $leg['duration']['text'] ?? $this->formatDuration($durationSeconds),
+                'durationText' => $this->formatDuration($durationSeconds),
                 'distanceMeters' => $distanceMeters,
-                'distanceText' => $leg['distance']['text'] ?? $this->formatDistance($distanceMeters),
+                'distanceText' => $this->formatDistance($distanceMeters),
             ];
         }
 
@@ -201,14 +206,39 @@ class GoogleMapsService
     }
 
     /**
-     * Build a cross-platform Google Maps Directions URL (Maps URLs).
+     * Build a Google Maps Directions URL that visits every stop in order.
+     *
+     * Uses Maps URLs api=1 (with avoid=ferries) when there are ≤9 intermediate
+     * waypoints. For longer routes falls back to /dir/A/B/C so no stops are dropped
+     * (api=1 silently ignores waypoints beyond the limit).
      *
      * @see https://developers.google.com/maps/documentation/urls/get-started#directions-action
      *
-     * @param list<array{formattedAddress: string, lat?: float|null, lng?: float|null, placeId?: string|null}> $points
+     * @param list<array{formattedAddress?: string, lat?: float|null, lng?: float|null, placeId?: string|null}> $points
      */
     public function buildGoogleMapsUrl(array $points): string
     {
+        if ([] === $points) {
+            return 'https://www.google.com/maps';
+        }
+
+        if (1 === \count($points)) {
+            $query = rawurlencode($this->pointAsMapsLocation($points[0]));
+
+            return 'https://www.google.com/maps/search/?api=1&query='.$query;
+        }
+
+        $intermediateCount = \count($points) - 2;
+
+        if ($intermediateCount > 9) {
+            $parts = [];
+            foreach ($points as $point) {
+                $parts[] = rawurlencode($this->pointAsMapsLocation($point));
+            }
+
+            return 'https://www.google.com/maps/dir/'.implode('/', $parts);
+        }
+
         $origin = $this->pointAsMapsLocation($points[0]);
         $destination = $this->pointAsMapsLocation($points[\count($points) - 1]);
         $waypoints = [];
@@ -241,7 +271,6 @@ class GoogleMapsService
         }
 
         if ($waypoints) {
-            // Pipe must be encoded as %7C per Maps URLs docs.
             $query['waypoints'] = implode('|', $waypoints);
             if (\count($waypointPlaceIds) === \count($waypoints)) {
                 $query['waypoint_place_ids'] = implode('|', $waypointPlaceIds);
@@ -303,10 +332,10 @@ class GoogleMapsService
         $minutes = intdiv($seconds % 3600, 60);
 
         if ($hours > 0) {
-            return sprintf('%d h %d min', $hours, $minutes);
+            return sprintf('%dh %dm', $hours, $minutes);
         }
 
-        return sprintf('%d min', max(1, $minutes));
+        return sprintf('%dm', max(1, $minutes));
     }
 
     private function formatDistance(int $meters): string

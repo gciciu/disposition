@@ -1,0 +1,45 @@
+{
+  "lang": {
+    "en": "English",
+    "de": "Deutsch",
+    "switch": "Language"
+  },
+  "common": {
+    "loading": "Loading…",
+    "logout": "Sign out",
+    "brand": "Delivery"
+  },
+  "login": {
+    "title": "Driver sign in",
+    "email": "Login (email)",
+    "password": "Password",
+    "remember": "Remember me",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "failed": "Could not sign in",
+    "driversOnly": "Driver access only"
+  },
+  "password": {
+    "title": "Set a new password",
+    "greeting": "Hello{name}. Choose your own password to replace the one from your administrator.",
+    "greetingName": ", {name}",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "placeholderMin": "At least 8 characters",
+    "placeholderConfirm": "Repeat password",
+    "submit": "Save password",
+    "submitting": "Saving…",
+    "tooShort": "Password must be at least 8 characters",
+    "mismatch": "Passwords do not match",
+    "failed": "Could not save password"
+  },
+  "routes": {
+    "title": "Routes",
+    "empty": "You have no routes"
+  },
+  "errors": {
+    "invalidCredentials": "Invalid login or password",
+    "accountDisabled": "Account disabled",
+    "sessionExpired": "Session expired"
+  }
+}

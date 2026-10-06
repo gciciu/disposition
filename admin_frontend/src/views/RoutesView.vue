@@ -2,13 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { useToast } from 'vue-toastification'
 import {
   mdiRoutes,
   mdiUpload,
   mdiPencil,
   mdiTrashCan,
-  mdiAlertCircle,
-  mdiCheckCircle,
   mdiLoading,
 } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
@@ -21,19 +20,16 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseLevel from '@/components/BaseLevel.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
-import NotificationBar from '@/components/NotificationBar.vue'
 import api from '@/api.js'
 
 const { t, locale } = useI18n()
 const router = useRouter()
+const toast = useToast()
 
 const routes = ref([])
 const loading = ref(false)
 const importing = ref(false)
 const deleting = ref(false)
-const error = ref('')
-const invalidAddresses = ref([])
-const success = ref('')
 const fileInput = ref(null)
 const deleteTarget = ref(null)
 
@@ -46,20 +42,13 @@ const isDeleteModalActive = computed({
   },
 })
 
-const clearFeedback = () => {
-  error.value = ''
-  invalidAddresses.value = []
-  success.value = ''
-}
-
 const loadRoutes = async () => {
   loading.value = true
-  error.value = ''
   try {
     const { data } = await api.get('/api/admin/routes')
     routes.value = data.routes ?? []
   } catch (e) {
-    error.value = e.response?.data?.error || t('deliveryRoutes.loadFailed')
+    toast.error(e.response?.data?.error || t('deliveryRoutes.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -80,14 +69,13 @@ const confirmDelete = async () => {
   }
 
   deleting.value = true
-  clearFeedback()
   try {
     await api.delete(`/api/admin/routes/${target.id}`)
-    success.value = t('deliveryRoutes.deleted')
+    toast.success(t('deliveryRoutes.deleted'))
     deleteTarget.value = null
     await loadRoutes()
   } catch (e) {
-    error.value = e.response?.data?.error || t('deliveryRoutes.deleteFailed')
+    toast.error(e.response?.data?.error || t('deliveryRoutes.deleteFailed'))
     deleteTarget.value = null
   } finally {
     deleting.value = false
@@ -106,7 +94,6 @@ const onFileSelected = async (event) => {
   }
 
   importing.value = true
-  clearFeedback()
 
   const formData = new FormData()
   formData.append('file', file)
@@ -114,20 +101,31 @@ const onFileSelected = async (event) => {
   try {
     const { data } = await api.post('/api/admin/routes/import', formData)
     const route = data.route
-    success.value = t('deliveryRoutes.importSuccess', {
-      name: route.name,
-      count: route.orderCount ?? route.orders?.length ?? 0,
-    })
+    toast.success(
+      t('deliveryRoutes.importSuccess', {
+        name: route.name,
+        count: route.orderCount ?? route.orders?.length ?? 0,
+      }),
+    )
     await loadRoutes()
-    if (route?.id) {
-      router.push({ name: 'route-detail', params: { id: route.id } })
-    }
   } catch (e) {
     const payload = e.response?.data
-    error.value = payload?.error || t('deliveryRoutes.importFailed')
-    invalidAddresses.value = Array.isArray(payload?.invalidAddresses)
+    const invalidAddresses = Array.isArray(payload?.invalidAddresses)
       ? payload.invalidAddresses
       : []
+    let message = payload?.error || t('deliveryRoutes.importFailed')
+    if (invalidAddresses.length) {
+      const details = invalidAddresses
+        .map(
+          (item) =>
+            `#${item.position} ${item.clientName} — ${item.address}${
+              item.error ? ` (${item.error})` : ''
+            }`,
+        )
+        .join('\n')
+      message = `${message}\n${details}`
+    }
+    toast.error(message, { timeout: invalidAddresses.length ? 8000 : 4000 })
   } finally {
     importing.value = false
   }
@@ -168,26 +166,6 @@ onMounted(loadRoutes)
         @change="onFileSelected"
       />
 
-      <NotificationBar v-if="error" color="danger" :icon="mdiAlertCircle" class="mb-6">
-        <div>
-          <div>{{ error }}</div>
-          <ul v-if="invalidAddresses.length" class="mt-2 list-disc pl-5 text-sm">
-            <li v-for="(item, idx) in invalidAddresses" :key="idx">
-              #{{ item.position }} {{ item.clientName }} — {{ item.address }}
-              <span v-if="item.error">({{ item.error }})</span>
-            </li>
-          </ul>
-        </div>
-      </NotificationBar>
-
-      <NotificationBar v-if="success" color="success" :icon="mdiCheckCircle" class="mb-6">
-        {{ success }}
-      </NotificationBar>
-
-      <p class="mb-6 text-sm text-gray-500 dark:text-slate-400">
-        {{ t('deliveryRoutes.hint') }}
-      </p>
-
       <CardBox v-if="!loading && routes.length === 0">
         <CardBoxComponentEmpty />
       </CardBox>
@@ -205,7 +183,6 @@ onMounted(loadRoutes)
             <tr>
               <th>{{ t('deliveryRoutes.name') }}</th>
               <th>{{ t('deliveryRoutes.orders') }}</th>
-              <th>{{ t('deliveryRoutes.sourceFile') }}</th>
               <th>{{ t('deliveryRoutes.created') }}</th>
               <th />
             </tr>
@@ -217,9 +194,6 @@ onMounted(loadRoutes)
               </td>
               <td :data-label="t('deliveryRoutes.orders')">
                 {{ route.orderCount }}
-              </td>
-              <td :data-label="t('deliveryRoutes.sourceFile')">
-                {{ route.sourceFilename || '—' }}
               </td>
               <td :data-label="t('deliveryRoutes.created')">
                 {{ formatDate(route.createdAt) }}

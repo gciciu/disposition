@@ -45,7 +45,8 @@ class CourierService
             ->setName($name)
             ->setEmail($login)
             ->setRoles([UserRole::Courier->value])
-            ->setIsActive(true);
+            ->setIsActive(true)
+            ->setMustChangePassword(true);
 
         $user->setPassword($this->passwordHasher->hashPassword($user, $password));
 
@@ -87,6 +88,7 @@ class CourierService
                     throw new BadRequestHttpException('password must be a string');
                 }
                 $user->setPassword($this->passwordHasher->hashPassword($user, $password));
+                $user->setMustChangePassword(true);
             }
         }
 

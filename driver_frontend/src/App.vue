@@ -1,13 +1,41 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { useAuth } from "./auth";
+import LanguageSwitcher from "./components/LanguageSwitcher.vue";
+import ChangePasswordView from "./views/ChangePasswordView.vue";
+import LoginView from "./views/LoginView.vue";
+import NoRoutesView from "./views/NoRoutesView.vue";
+
+const { t } = useI18n();
+const { bootstrap, isAuthenticated, mustChangePassword } = useAuth();
+const ready = ref(false);
+
+onMounted(async () => {
+  await bootstrap();
+  ready.value = true;
+});
+
+const screen = computed(() => {
+  if (!isAuthenticated.value) {
+    return "login";
+  }
+  if (mustChangePassword.value) {
+    return "change-password";
+  }
+  return "no-routes";
+});
 </script>
 
 <template>
-  <main class="min-h-screen bg-emerald-950 text-white flex items-center justify-center">
-    <div class="text-center space-y-4">
-      <p class="text-sm uppercase tracking-[0.35em] text-emerald-400">Delivery</p>
-      <h1 class="text-5xl font-semibold">Hello World</h1>
-      <p class="text-lg text-emerald-100/80">Driver frontend</p>
-      <p class="text-sm text-emerald-200/50">Tauri · Vue · Tailwind</p>
+  <main class="app-shell">
+    <div class="app-shell__lang">
+      <LanguageSwitcher />
     </div>
+
+    <div v-if="!ready" class="loading-copy">{{ t("common.loading") }}</div>
+    <LoginView v-else-if="screen === 'login'" />
+    <ChangePasswordView v-else-if="screen === 'change-password'" />
+    <NoRoutesView v-else />
   </main>
 </template>

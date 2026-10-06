@@ -60,7 +60,35 @@ class RoutePdfImportService
             ->setName($parsed['routeName'])
             ->setSourceFilename($file->getClientOriginalName());
 
-        foreach ($geocodedOrders as $orderData) {
+        $segmentsByToIndex = [];
+        if (\count($geocodedOrders) >= 2) {
+            $routePoints = array_map(static fn (array $orderData): array => [
+                'formattedAddress' => $orderData['formattedAddress'],
+                'lat' => $orderData['lat'],
+                'lng' => $orderData['lng'],
+                'placeId' => $orderData['placeId'],
+            ], $geocodedOrders);
+
+            $built = $this->googleMaps->buildTruckRoute($routePoints);
+            foreach ($built['segments'] as $segment) {
+                $segmentsByToIndex[$segment['toIndex']] = $segment;
+            }
+
+            $route
+                ->setTotalDurationSeconds($built['totalDurationSeconds'])
+                ->setTotalDistanceMeters($built['totalDistanceMeters'])
+                ->setMapsUrl($built['mapsUrl']);
+        } elseif (1 === \count($geocodedOrders)) {
+            $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl([[
+                'formattedAddress' => $geocodedOrders[0]['formattedAddress'],
+                'lat' => $geocodedOrders[0]['lat'],
+                'lng' => $geocodedOrders[0]['lng'],
+                'placeId' => $geocodedOrders[0]['placeId'],
+            ]]));
+        }
+
+        foreach ($geocodedOrders as $index => $orderData) {
+            $segment = $segmentsByToIndex[$index] ?? null;
             $order = (new DeliveryOrder())
                 ->setPosition($orderData['position'])
                 ->setClientName($orderData['clientName'])
@@ -71,6 +99,8 @@ class RoutePdfImportService
                 ->setLat($orderData['lat'])
                 ->setLng($orderData['lng'])
                 ->setPlaceId($orderData['placeId'])
+                ->setTravelDurationSeconds($segment['durationSeconds'] ?? null)
+                ->setTravelDistanceMeters($segment['distanceMeters'] ?? null)
                 ->setProducts($orderData['products']);
 
             $route->addOrder($order);
