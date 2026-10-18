@@ -21,6 +21,7 @@ import BaseButtons from '@/components/BaseButtons.vue'
 import BaseLevel from '@/components/BaseLevel.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import api from '@/api.js'
+import { applyRouteListPatch, useRealtime } from '@/composables/useRealtime.js'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -142,7 +143,29 @@ const formatDate = (value) => {
   }
 }
 
-onMounted(loadRoutes)
+const patchRouteFromEvent = (routePayload) => {
+  if (!routePayload?.id) {
+    return
+  }
+  const index = routes.value.findIndex((item) => item.id === routePayload.id)
+  if (index === -1) {
+    return
+  }
+  routes.value[index] = applyRouteListPatch(routes.value[index], routePayload)
+}
+
+const { start: startRealtime } = useRealtime({
+  onEvent: (event, data) => {
+    if (event === 'route.started' || event === 'order.completed' || event === 'order.refused') {
+      patchRouteFromEvent(data?.route)
+    }
+  },
+})
+
+onMounted(() => {
+  void loadRoutes()
+  startRealtime()
+})
 </script>
 
 <template>
@@ -183,7 +206,9 @@ onMounted(loadRoutes)
             <tr>
               <th>{{ t('deliveryRoutes.name') }}</th>
               <th>{{ t('deliveryRoutes.courier') }}</th>
+              <th>{{ t('deliveryRoutes.warehouse') }}</th>
               <th>{{ t('deliveryRoutes.orders') }}</th>
+              <th>{{ t('deliveryRoutes.progress') }}</th>
               <th>{{ t('deliveryRoutes.created') }}</th>
               <th />
             </tr>
@@ -196,8 +221,34 @@ onMounted(loadRoutes)
               <td :data-label="t('deliveryRoutes.courier')">
                 {{ route.courier?.name || t('deliveryRoutes.courierUnassigned') }}
               </td>
+              <td :data-label="t('deliveryRoutes.warehouse')">
+                {{
+                  route.originType === 'courier_location' || !route.warehouse?.name
+                    ? t('deliveryRoutes.warehouseCourierLocation')
+                    : route.warehouse.name
+                }}
+              </td>
               <td :data-label="t('deliveryRoutes.orders')">
                 {{ route.orderCount }}
+              </td>
+              <td :data-label="t('deliveryRoutes.progress')" class="lg:w-40">
+                <div class="flex flex-col gap-1">
+                  <progress
+                    class="flex w-2/5 self-center lg:w-full"
+                    max="100"
+                    :value="route.progress ?? 0"
+                  >
+                    {{ route.progress ?? 0 }}
+                  </progress>
+                  <small class="text-gray-500 dark:text-slate-400">
+                    {{
+                      t('deliveryRoutes.progressCount', {
+                        delivered: route.deliveredCount ?? 0,
+                        total: route.orderCount ?? 0,
+                      })
+                    }}
+                  </small>
+                </div>
               </td>
               <td :data-label="t('deliveryRoutes.created')">
                 {{ formatDate(route.createdAt) }}

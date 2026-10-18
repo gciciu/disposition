@@ -4,7 +4,9 @@ namespace App\Service;
 
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
+use App\Enum\RouteOriginType;
 use App\Exception\RouteAddressValidationException;
+use App\Repository\WarehouseRepository;
 use Smalot\PdfParser\Parser;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 
@@ -12,6 +14,8 @@ class RoutePdfImportService
 {
     public function __construct(
         private readonly GoogleMapsService $googleMaps,
+        private readonly DeliveryRouteMetricsService $metrics,
+        private readonly WarehouseRepository $warehouses,
     ) {
     }
 
@@ -56,41 +60,20 @@ class RoutePdfImportService
             throw new RouteAddressValidationException($invalidAddresses);
         }
 
+        $defaultWarehouse = $this->warehouses->findDefault();
         $route = (new DeliveryRoute())
             ->setName($parsed['routeName'])
             ->setSourceFilename($file->getClientOriginalName());
 
-        $segmentsByToIndex = [];
-        if (\count($geocodedOrders) >= 2) {
-            $routePoints = array_map(static fn (array $orderData): array => [
-                'formattedAddress' => $orderData['formattedAddress'],
-                'lat' => $orderData['lat'],
-                'lng' => $orderData['lng'],
-                'placeId' => $orderData['placeId'],
-            ], $geocodedOrders);
-
-            $built = $this->googleMaps->buildTruckRoute($routePoints);
-            foreach ($built['segments'] as $segment) {
-                $segmentsByToIndex[$segment['toIndex']] = $segment;
-            }
-
-            $route
-                ->setTotalDurationSeconds($built['totalDurationSeconds'])
-                ->setTotalDistanceMeters($built['totalDistanceMeters'])
-                ->setMapsUrl($built['mapsUrl']);
-        } elseif (1 === \count($geocodedOrders)) {
-            $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl([[
-                'formattedAddress' => $geocodedOrders[0]['formattedAddress'],
-                'lat' => $geocodedOrders[0]['lat'],
-                'lng' => $geocodedOrders[0]['lng'],
-                'placeId' => $geocodedOrders[0]['placeId'],
-            ]]));
+        if (null !== $defaultWarehouse) {
+            $route->setWarehouse($defaultWarehouse);
+        } else {
+            $route->setOriginType(RouteOriginType::CourierLocation);
         }
 
-        foreach ($geocodedOrders as $index => $orderData) {
-            $segment = $segmentsByToIndex[$index] ?? null;
+        foreach (array_values($geocodedOrders) as $index => $orderData) {
             $order = (new DeliveryOrder())
-                ->setPosition($orderData['position'])
+                ->setPosition($index + 1)
                 ->setClientName($orderData['clientName'])
                 ->setPhone($orderData['phone'])
                 ->setAddress($orderData['address'])
@@ -99,12 +82,12 @@ class RoutePdfImportService
                 ->setLat($orderData['lat'])
                 ->setLng($orderData['lng'])
                 ->setPlaceId($orderData['placeId'])
-                ->setTravelDurationSeconds($segment['durationSeconds'] ?? null)
-                ->setTravelDistanceMeters($segment['distanceMeters'] ?? null)
                 ->setProducts($orderData['products']);
 
             $route->addOrder($order);
         }
+
+        $this->metrics->rebuild($route);
 
         return $route;
     }

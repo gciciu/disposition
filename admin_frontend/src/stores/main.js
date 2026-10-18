@@ -1,18 +1,11 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
 
 export const useMainStore = defineStore('main', () => {
   const userName = ref('Admin')
   const userEmail = ref('admin@delivery.local')
-
-  const userAvatar = computed(
-    () =>
-      `https://api.dicebear.com/7.x/avataaars/svg?seed=${userEmail.value.replace(
-        /[^a-z0-9]+/gi,
-        '-',
-      )}`,
-  )
+  const userAvatar = ref(null)
 
   const isFieldFocusRegistered = ref(false)
 
@@ -25,6 +18,9 @@ export const useMainStore = defineStore('main', () => {
     }
     if (payload.email) {
       userEmail.value = payload.email
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'avatar')) {
+      userAvatar.value = payload.avatar || null
     }
   }
 

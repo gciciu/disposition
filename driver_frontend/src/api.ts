@@ -106,7 +106,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
   }
-  if (init.body && !headers.has("Content-Type")) {
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -169,6 +170,8 @@ export type RouteCourier = {
   login: string;
 };
 
+export type RouteOriginType = "warehouse" | "courier_location" | "none";
+
 export type RouteListItem = {
   id: number;
   name: string;
@@ -178,7 +181,13 @@ export type RouteListItem = {
   totalDistanceText: string | null;
   mapsUrl: string | null;
   courier: RouteCourier | null;
+  originType: RouteOriginType;
+  startedAt: string | null;
+  completedAt: string | null;
 };
+
+export type OrderStatus = "pending" | "delivered" | "refused";
+export type ProofType = "photo" | "signature";
 
 export type RouteOrder = {
   id: number;
@@ -189,8 +198,13 @@ export type RouteOrder = {
   formattedAddress: string | null;
   addressValid: boolean;
   products: string[];
+  deliveredProductIndexes: number[] | null;
   travelDurationText: string | null;
   travelDistanceText: string | null;
+  status: OrderStatus;
+  completedAt: string | null;
+  proofType: ProofType | null;
+  hasProof: boolean;
 };
 
 export type RouteDetail = RouteListItem & {
@@ -203,4 +217,42 @@ export function fetchMyRoutesRequest() {
 
 export function fetchMyRouteRequest(id: number) {
   return request<{ route: RouteDetail }>(`/api/driver/routes/${id}`);
+}
+
+export function startRouteRequest(id: number, coords?: { lat: number; lng: number }) {
+  return request<{ route: RouteDetail }>(`/api/driver/routes/${id}/start`, {
+    method: "POST",
+    body: JSON.stringify(coords ?? {}),
+  });
+}
+
+export function completeOrderRequest(
+  routeId: number,
+  orderId: number,
+  proofType: ProofType,
+  file: Blob,
+  filename = "proof.jpg",
+  deliveredProductIndexes?: number[],
+) {
+  const body = new FormData();
+  body.append("proofType", proofType);
+  body.append("file", file, filename);
+  if (deliveredProductIndexes !== undefined) {
+    body.append("deliveredProductIndexes", JSON.stringify(deliveredProductIndexes));
+  }
+
+  return request<{ order: RouteOrder; route: RouteDetail }>(
+    `/api/driver/routes/${routeId}/orders/${orderId}/complete`,
+    {
+      method: "POST",
+      body,
+    },
+  );
+}
+
+export function refuseOrderRequest(routeId: number, orderId: number) {
+  return request<{ order: RouteOrder; route: RouteDetail }>(
+    `/api/driver/routes/${routeId}/orders/${orderId}/refuse`,
+    { method: "POST" },
+  );
 }

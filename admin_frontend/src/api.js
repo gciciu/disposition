@@ -5,6 +5,7 @@ const API_BASE_URL =
 
 const raw = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -13,6 +14,7 @@ const raw = axios.create({
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',

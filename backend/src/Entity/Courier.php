@@ -20,6 +20,9 @@ class Courier
     #[ORM\JoinColumn(nullable: false, unique: true, onDelete: 'CASCADE')]
     private ?User $user = null;
 
+    #[ORM\Column(length: 32, nullable: true)]
+    private ?string $phone = null;
+
     /** @var Collection<int, DeliveryRoute> */
     #[ORM\OneToMany(targetEntity: DeliveryRoute::class, mappedBy: 'courier')]
     private Collection $routes;
@@ -46,6 +49,18 @@ class Courier
         return $this;
     }
 
+    public function getPhone(): ?string
+    {
+        return $this->phone;
+    }
+
+    public function setPhone(?string $phone): static
+    {
+        $this->phone = $phone;
+
+        return $this;
+    }
+
     /**
      * @return Collection<int, DeliveryRoute>
      */
@@ -64,6 +79,7 @@ class Courier
      *     id: int|null,
      *     name: string,
      *     login: string,
+     *     phone: string|null,
      *     isActive: bool,
      *     canDelete: bool
      * }
@@ -76,6 +92,7 @@ class Courier
             'id' => $this->id,
             'name' => $user?->getName() ?? '',
             'login' => $user?->getEmail() ?? '',
+            'phone' => $this->phone,
             'isActive' => $user?->isActive() ?? false,
             'canDelete' => $this->canDelete(),
         ];

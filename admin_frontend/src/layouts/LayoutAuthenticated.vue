@@ -7,15 +7,11 @@ import menuNavBar from '@/menuNavBar.js'
 import { useDarkModeStore } from '@/stores/darkMode.js'
 import { useAuthStore } from '@/stores/auth.js'
 import BaseIcon from '@/components/BaseIcon.vue'
-import FormControl from '@/components/FormControl.vue'
 import NavBar from '@/components/NavBar.vue'
 import NavBarItemPlain from '@/components/NavBarItemPlain.vue'
 import AsideMenu from '@/components/AsideMenu.vue'
 import FooterBar from '@/components/FooterBar.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
-import { useI18n } from 'vue-i18n'
-
-const { t } = useI18n()
 
 const layoutAsidePadding = 'xl:pl-60'
 
@@ -67,9 +63,6 @@ const menuClick = async (event, item) => {
         </NavBarItemPlain>
         <NavBarItemPlain display="hidden lg:flex xl:hidden" @click.prevent="isAsideLgActive = true">
           <BaseIcon :path="mdiMenu" size="24" />
-        </NavBarItemPlain>
-        <NavBarItemPlain use-margin>
-          <FormControl :placeholder="t('app.search')" ctrl-k-focus transparent borderless />
         </NavBarItemPlain>
         <NavBarItemPlain>
           <LanguageSwitcher />

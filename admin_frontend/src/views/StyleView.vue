@@ -21,7 +21,7 @@ const handleStyleChange = (slug) => {
     }
   })
 
-  router.push('/dashboard')
+  router.push('/routes')
 }
 </script>
 

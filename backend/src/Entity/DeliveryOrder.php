@@ -2,7 +2,10 @@
 
 namespace App\Entity;
 
+use App\Enum\DeliveryOrderStatus;
+use App\Enum\DeliveryProofType;
 use App\Repository\DeliveryOrderRepository;
+use App\Util\AddressFormatter;
 use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: DeliveryOrderRepository::class)]
@@ -60,6 +63,29 @@ class DeliveryOrder
      */
     #[ORM\Column(type: 'json')]
     private array $products = [];
+
+    /**
+     * Indexes into $products that were delivered. Null until the stop is completed.
+     *
+     * @var list<int>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $deliveredProductIndexes = null;
+
+    #[ORM\Column(length: 32, enumType: DeliveryOrderStatus::class)]
+    private DeliveryOrderStatus $status = DeliveryOrderStatus::Pending;
+
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $completedAt = null;
+
+    #[ORM\Column(length: 32, nullable: true, enumType: DeliveryProofType::class)]
+    private ?DeliveryProofType $proofType = null;
+
+    #[ORM\Column(length: 512, nullable: true)]
+    private ?string $proofPath = null;
+
+    #[ORM\Column(length: 128, nullable: true)]
+    private ?string $proofMime = null;
 
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
@@ -249,9 +275,110 @@ class DeliveryOrder
         return $this;
     }
 
+    /**
+     * @return list<int>|null
+     */
+    public function getDeliveredProductIndexes(): ?array
+    {
+        return $this->deliveredProductIndexes;
+    }
+
+    /**
+     * @param list<int>|null $deliveredProductIndexes
+     */
+    public function setDeliveredProductIndexes(?array $deliveredProductIndexes): static
+    {
+        if (null === $deliveredProductIndexes) {
+            $this->deliveredProductIndexes = null;
+
+            return $this;
+        }
+
+        $normalized = [];
+        foreach ($deliveredProductIndexes as $index) {
+            if (!\is_int($index) && !(\is_string($index) && ctype_digit($index))) {
+                continue;
+            }
+            $value = (int) $index;
+            if ($value < 0 || !\array_key_exists($value, $this->products)) {
+                continue;
+            }
+            $normalized[$value] = $value;
+        }
+
+        $this->deliveredProductIndexes = array_values($normalized);
+
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getStatus(): DeliveryOrderStatus
+    {
+        return $this->status;
+    }
+
+    public function setStatus(DeliveryOrderStatus $status): static
+    {
+        $this->status = $status;
+
+        return $this;
+    }
+
+    public function getCompletedAt(): ?\DateTimeImmutable
+    {
+        return $this->completedAt;
+    }
+
+    public function setCompletedAt(?\DateTimeImmutable $completedAt): static
+    {
+        $this->completedAt = $completedAt;
+
+        return $this;
+    }
+
+    public function getProofType(): ?DeliveryProofType
+    {
+        return $this->proofType;
+    }
+
+    public function setProofType(?DeliveryProofType $proofType): static
+    {
+        $this->proofType = $proofType;
+
+        return $this;
+    }
+
+    public function getProofPath(): ?string
+    {
+        return $this->proofPath;
+    }
+
+    public function setProofPath(?string $proofPath): static
+    {
+        $this->proofPath = $proofPath;
+
+        return $this;
+    }
+
+    public function getProofMime(): ?string
+    {
+        return $this->proofMime;
+    }
+
+    public function setProofMime(?string $proofMime): static
+    {
+        $this->proofMime = $proofMime;
+
+        return $this;
+    }
+
+    public function hasProof(): bool
+    {
+        return null !== $this->proofPath && '' !== $this->proofPath;
     }
 
     /**
@@ -271,6 +398,11 @@ class DeliveryOrder
      *     travelDurationText: string|null,
      *     travelDistanceText: string|null,
      *     products: list<string>,
+     *     deliveredProductIndexes: list<int>|null,
+     *     status: string,
+     *     completedAt: string|null,
+     *     proofType: string|null,
+     *     hasProof: bool,
      *     createdAt: string
      * }
      */
@@ -281,9 +413,9 @@ class DeliveryOrder
             'position' => $this->position,
             'clientName' => $this->clientName,
             'phone' => $this->phone,
-            'address' => $this->address,
+            'address' => AddressFormatter::withoutCountry($this->address) ?? $this->address,
             'addressValid' => $this->addressValid,
-            'formattedAddress' => $this->formattedAddress,
+            'formattedAddress' => AddressFormatter::withoutCountry($this->formattedAddress),
             'lat' => $this->lat,
             'lng' => $this->lng,
             'placeId' => $this->placeId,
@@ -296,6 +428,11 @@ class DeliveryOrder
                 ? self::formatDistance($this->travelDistanceMeters)
                 : null,
             'products' => $this->products,
+            'deliveredProductIndexes' => $this->deliveredProductIndexes,
+            'status' => $this->status->value,
+            'completedAt' => $this->completedAt?->format(\DateTimeInterface::ATOM),
+            'proofType' => $this->proofType?->value,
+            'hasProof' => $this->hasProof(),
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
         ];
     }

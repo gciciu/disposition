@@ -21,7 +21,7 @@ const { t } = useI18n()
 
         <template #footer>
           <BaseButtons>
-            <BaseButton :label="t('common.done')" to="/dashboard" color="danger" />
+            <BaseButton :label="t('common.done')" to="/routes" color="danger" />
           </BaseButtons>
         </template>
       </CardBox>

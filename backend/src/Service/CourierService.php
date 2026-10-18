@@ -31,13 +31,14 @@ class CourierService
     }
 
     /**
-     * @param array{name?: mixed, login?: mixed, password?: mixed} $data
+     * @param array{name?: mixed, login?: mixed, phone?: mixed, password?: mixed} $data
      */
     public function create(array $data): Courier
     {
         $name = $this->requireNonEmptyString($data, 'name');
         $login = $this->normalizeLogin($this->requireNonEmptyString($data, 'login'));
         $password = $this->requireNonEmptyString($data, 'password');
+        $phone = $this->normalizePhone($data['phone'] ?? null, required: false);
 
         $this->assertLoginAvailable($login);
 
@@ -50,7 +51,9 @@ class CourierService
 
         $user->setPassword($this->passwordHasher->hashPassword($user, $password));
 
-        $courier = (new Courier())->setUser($user);
+        $courier = (new Courier())
+            ->setUser($user)
+            ->setPhone($phone);
         $user->setCourier($courier);
 
         $this->em->persist($courier);
@@ -60,7 +63,7 @@ class CourierService
     }
 
     /**
-     * @param array{name?: mixed, login?: mixed, password?: mixed} $data
+     * @param array{name?: mixed, login?: mixed, phone?: mixed, password?: mixed} $data
      */
     public function update(Courier $courier, array $data): Courier
     {
@@ -79,6 +82,10 @@ class CourierService
                 $this->assertLoginAvailable($login, $user);
                 $user->setEmail($login);
             }
+        }
+
+        if (\array_key_exists('phone', $data)) {
+            $courier->setPhone($this->normalizePhone($data['phone'], required: false));
         }
 
         if (\array_key_exists('password', $data)) {
@@ -152,5 +159,39 @@ class CourierService
         }
 
         return $login;
+    }
+
+    private function normalizePhone(mixed $value, bool $required = false): ?string
+    {
+        if (null === $value) {
+            if ($required) {
+                throw new BadRequestHttpException('phone is required');
+            }
+
+            return null;
+        }
+
+        if (!\is_string($value)) {
+            throw new BadRequestHttpException('phone must be a string');
+        }
+
+        $phone = trim($value);
+        if ('' === $phone) {
+            if ($required) {
+                throw new BadRequestHttpException('phone is required');
+            }
+
+            return null;
+        }
+
+        if (\strlen($phone) > 32) {
+            throw new BadRequestHttpException('phone is too long (max 32 characters)');
+        }
+
+        if (!preg_match('/^[+\d][\d\s\-().]{2,31}$/', $phone)) {
+            throw new BadRequestHttpException('phone format is invalid');
+        }
+
+        return $phone;
     }
 }

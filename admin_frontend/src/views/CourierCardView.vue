@@ -24,6 +24,7 @@ const isNew = computed(() => route.name === 'courier-new')
 const form = reactive({
   name: '',
   login: '',
+  phone: '',
   password: '',
 })
 
@@ -38,6 +39,7 @@ const loadCourier = async () => {
   if (isNew.value) {
     form.name = ''
     form.login = ''
+    form.phone = ''
     form.password = ''
     return
   }
@@ -48,6 +50,7 @@ const loadCourier = async () => {
     const courier = data.courier
     form.name = courier.name ?? ''
     form.login = courier.login ?? ''
+    form.phone = courier.phone ?? ''
     form.password = ''
   } catch (e) {
     toast.error(e.response?.data?.error || t('couriers.loadFailed'))
@@ -62,6 +65,7 @@ const submit = async () => {
   const payload = {
     name: form.name.trim(),
     login: form.login.trim(),
+    phone: form.phone.trim(),
   }
 
   if (isNew.value || form.password) {
@@ -77,6 +81,7 @@ const submit = async () => {
       const { data } = await api.put(`/api/admin/couriers/${route.params.id}`, payload)
       form.name = data.courier.name ?? ''
       form.login = data.courier.login ?? ''
+      form.phone = data.courier.phone ?? ''
       form.password = ''
       toast.success(t('couriers.updated'))
     }
@@ -120,6 +125,15 @@ onMounted(loadCourier)
             type="email"
             :placeholder="t('couriers.loginPlaceholder')"
             required
+          />
+        </FormField>
+
+        <FormField :label="t('couriers.phone')" :help="t('couriers.phoneHelp')">
+          <FormControl
+            v-model="form.phone"
+            type="tel"
+            :placeholder="t('couriers.phonePlaceholder')"
+            autocomplete="tel"
           />
         </FormField>
 

@@ -1,0 +1,6 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "devUrl": "http://192.168.1.200:1430"
+  }
+}

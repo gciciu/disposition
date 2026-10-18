@@ -37,7 +37,7 @@ const submit = async () => {
   try {
     await authStore.login(form.email.trim(), form.password, form.remember)
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
-    const target = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/dashboard'
+    const target = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/routes'
     await router.push(target)
   } catch (error) {
     toast.error(

@@ -8,6 +8,10 @@
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
     env(GOOGLE_MAPS_API_KEY): ''
+    env(MAIL_FROM): 'noreply@delivery.local'
+    env(REALTIME_INTERNAL_URL): 'http://127.0.0.1:8090'
+    env(REALTIME_PUBLIC_WS_URL): 'ws://127.0.0.1:8090/ws'
+    env(REALTIME_SECRET): 'dev-realtime-secret-change-me'
 
 services:
     # default configuration for services in *this* file
@@ -23,6 +27,25 @@ services:
     App\Service\GoogleMapsService:
         arguments:
             $apiKey: '%env(GOOGLE_MAPS_API_KEY)%'
+
+    App\Service\DeliveryProofService:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    App\Service\DriverRealtimePublisher:
+        arguments:
+            $internalUrl: '%env(REALTIME_INTERNAL_URL)%'
+            $secret: '%env(REALTIME_SECRET)%'
+
+    App\Service\RealtimeTicketService:
+        arguments:
+            $secret: '%env(REALTIME_SECRET)%'
+            $publicWsUrl: '%env(REALTIME_PUBLIC_WS_URL)%'
+
+    App\Service\EmailService:
+        arguments:
+            $mailFrom: '%env(MAIL_FROM)%'
+            $mailerDsn: '%env(MAILER_DSN)%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

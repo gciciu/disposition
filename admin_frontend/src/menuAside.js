@@ -1,35 +1,39 @@
 import {
-  mdiAccountCircle,
-  mdiAccountMultiple,
+  // mdiAccountMultiple,
+  // mdiClipboardListOutline,
+  mdiEmailFastOutline,
   mdiTruckDelivery,
-  mdiClipboardListOutline,
   mdiLogout,
-  mdiMonitor,
+  // mdiMonitor,
   mdiRoutes,
-  mdiSquareEditOutline,
-  mdiTable,
+  mdiWarehouse,
 } from '@mdi/js'
 
 export const menuAsideMain = [
-  {
-    to: '/dashboard',
-    icon: mdiMonitor,
-    labelKey: 'menu.dashboard',
-  },
+  // {
+  //   to: '/dashboard',
+  //   icon: mdiMonitor,
+  //   labelKey: 'menu.dashboard',
+  // },
   {
     to: '/routes',
     labelKey: 'menu.deliveryRoutes',
     icon: mdiRoutes,
   },
+  // {
+  //   to: '/tables',
+  //   labelKey: 'menu.orders',
+  //   icon: mdiClipboardListOutline,
+  // },
+  // {
+  //   to: '/tables',
+  //   labelKey: 'menu.clients',
+  //   icon: mdiAccountMultiple,
+  // },
   {
-    to: '/tables',
-    labelKey: 'menu.orders',
-    icon: mdiClipboardListOutline,
-  },
-  {
-    to: '/tables',
-    labelKey: 'menu.clients',
-    icon: mdiAccountMultiple,
+    to: '/warehouses',
+    labelKey: 'menu.warehouses',
+    icon: mdiWarehouse,
   },
   {
     to: '/couriers',
@@ -37,20 +41,25 @@ export const menuAsideMain = [
     icon: mdiTruckDelivery,
   },
   {
-    to: '/forms',
-    labelKey: 'menu.forms',
-    icon: mdiSquareEditOutline,
+    to: '/email',
+    labelKey: 'menu.emailTest',
+    icon: mdiEmailFastOutline,
   },
-  {
-    to: '/tables',
-    labelKey: 'menu.tables',
-    icon: mdiTable,
-  },
-  {
-    to: '/profile',
-    labelKey: 'menu.profile',
-    icon: mdiAccountCircle,
-  },
+  // {
+  //   to: '/forms',
+  //   labelKey: 'menu.forms',
+  //   icon: mdiSquareEditOutline,
+  // },
+  // {
+  //   to: '/tables',
+  //   labelKey: 'menu.tables',
+  //   icon: mdiTable,
+  // },
+  // {
+  //   to: '/profile',
+  //   labelKey: 'menu.profile',
+  //   icon: mdiAccountCircle,
+  // },
 ]
 
 export const menuAsideBottom = [

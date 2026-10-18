@@ -2,12 +2,15 @@
 
 namespace App\Service;
 
+use App\Util\AddressFormatter;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class GoogleMapsService
 {
     private const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
     private const DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
+    private const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
+    private const PLACE_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 
     public function __construct(
         private readonly HttpClientInterface $httpClient,
@@ -18,6 +21,138 @@ class GoogleMapsService
     public function isConfigured(): bool
     {
         return '' !== trim($this->apiKey);
+    }
+
+    /**
+     * @return list<array{placeId: string, description: string, mainText: string, secondaryText: string}>
+     */
+    public function autocompleteAddress(string $input): array
+    {
+        $input = trim($input);
+        if ('' === $input) {
+            return [];
+        }
+
+        if (!$this->isConfigured()) {
+            throw new \RuntimeException('GOOGLE_MAPS_API_KEY is not configured');
+        }
+
+        $response = $this->httpClient->request('GET', self::AUTOCOMPLETE_URL, [
+            'query' => [
+                'input' => $input,
+                'language' => 'de',
+                'components' => 'country:de',
+                'types' => 'address',
+                'key' => $this->apiKey,
+            ],
+            'timeout' => 10,
+        ]);
+
+        try {
+            $data = $response->toArray(false);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Google Maps request failed: '.$e->getMessage(), 0, $e);
+        }
+
+        $status = $data['status'] ?? 'UNKNOWN_ERROR';
+        if ('ZERO_RESULTS' === $status) {
+            return [];
+        }
+
+        if ('OK' !== $status) {
+            throw new \RuntimeException($this->placesErrorMessage($status));
+        }
+
+        $predictions = [];
+        foreach ($data['predictions'] ?? [] as $prediction) {
+            $placeId = $prediction['place_id'] ?? null;
+            $description = $prediction['description'] ?? null;
+            if (!\is_string($placeId) || '' === $placeId || !\is_string($description) || '' === $description) {
+                continue;
+            }
+
+            $structured = $prediction['structured_formatting'] ?? [];
+            $mainText = \is_string($structured['main_text'] ?? null) ? $structured['main_text'] : $description;
+            $secondaryText = \is_string($structured['secondary_text'] ?? null) ? $structured['secondary_text'] : '';
+            $predictions[] = [
+                'placeId' => $placeId,
+                'description' => AddressFormatter::withoutCountry($description) ?? $description,
+                'mainText' => $mainText,
+                'secondaryText' => AddressFormatter::withoutCountry($secondaryText) ?? $secondaryText,
+            ];
+        }
+
+        return $predictions;
+    }
+
+    /**
+     * @return array{
+     *     valid: bool,
+     *     formattedAddress?: string,
+     *     lat?: float,
+     *     lng?: float,
+     *     placeId?: string,
+     *     error?: string
+     * }
+     */
+    public function getPlaceDetails(string $placeId): array
+    {
+        $placeId = trim($placeId);
+        if ('' === $placeId) {
+            return [
+                'valid' => false,
+                'error' => 'Place id is empty',
+            ];
+        }
+
+        if (!$this->isConfigured()) {
+            return [
+                'valid' => false,
+                'error' => 'GOOGLE_MAPS_API_KEY is not configured',
+            ];
+        }
+
+        $response = $this->httpClient->request('GET', self::PLACE_DETAILS_URL, [
+            'query' => [
+                'place_id' => $placeId,
+                'fields' => 'formatted_address,geometry,place_id',
+                'language' => 'de',
+                'key' => $this->apiKey,
+            ],
+            'timeout' => 10,
+        ]);
+
+        try {
+            $data = $response->toArray(false);
+        } catch (\Throwable $e) {
+            return [
+                'valid' => false,
+                'error' => 'Google Maps request failed: '.$e->getMessage(),
+            ];
+        }
+
+        $status = $data['status'] ?? 'UNKNOWN_ERROR';
+        $result = $data['result'] ?? null;
+        if ('OK' !== $status || !\is_array($result)) {
+            return [
+                'valid' => false,
+                'error' => $this->placesErrorMessage($status),
+            ];
+        }
+
+        $location = $result['geometry']['location'] ?? [];
+
+        $formatted = $result['formatted_address'] ?? null;
+
+        return [
+            'valid' => true,
+            'formattedAddress' => \is_string($formatted)
+                ? (AddressFormatter::withoutCountry($formatted) ?? $formatted)
+                : null,
+            'lat' => isset($location['lat']) ? (float) $location['lat'] : null,
+            'lng' => isset($location['lng']) ? (float) $location['lng'] : null,
+            'placeId' => $result['place_id'] ?? $placeId,
+        ];
     }
 
     /**
@@ -77,7 +212,7 @@ class GoogleMapsService
 
         $result = $data['results'][0];
         $location = $result['geometry']['location'] ?? [];
-        $formatted = $result['formatted_address'] ?? $input;
+        $formatted = AddressFormatter::withoutCountry($result['formatted_address'] ?? $input) ?? $input;
         $partialMatch = !empty($result['partial_match']);
         // Only offer a hint when Google is unsure (partial match). Exact hits that
         // merely reformat the address (e.g. append country) stay silent.
@@ -100,6 +235,7 @@ class GoogleMapsService
     private function isSameAddress(string $a, string $b): bool
     {
         $normalize = static function (string $value): string {
+            $value = AddressFormatter::withoutCountry($value) ?? $value;
             $value = mb_strtolower(trim($value));
             $value = str_replace(['ß'], ['ss'], $value);
             $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
@@ -183,11 +319,13 @@ class GoogleMapsService
             $totalDurationSeconds += $durationSeconds;
             $totalDistanceMeters += $distanceMeters;
 
+            $fromAddress = $leg['start_address'] ?? ($points[$index]['formattedAddress'] ?? '');
+            $toAddress = $leg['end_address'] ?? ($points[$index + 1]['formattedAddress'] ?? '');
             $segments[] = [
                 'fromIndex' => $index,
                 'toIndex' => $index + 1,
-                'fromAddress' => $leg['start_address'] ?? ($points[$index]['formattedAddress'] ?? ''),
-                'toAddress' => $leg['end_address'] ?? ($points[$index + 1]['formattedAddress'] ?? ''),
+                'fromAddress' => AddressFormatter::withoutCountry($fromAddress) ?? $fromAddress,
+                'toAddress' => AddressFormatter::withoutCountry($toAddress) ?? $toAddress,
                 'durationSeconds' => $durationSeconds,
                 'durationText' => $this->formatDuration($durationSeconds),
                 'distanceMeters' => $distanceMeters,
@@ -311,6 +449,18 @@ class GoogleMapsService
             'REQUEST_DENIED' => 'Google Maps request denied — check API key',
             'INVALID_REQUEST' => 'Invalid address request',
             default => 'Could not validate address ('.$status.')',
+        };
+    }
+
+    private function placesErrorMessage(string $status): string
+    {
+        return match ($status) {
+            'ZERO_RESULTS' => 'Address not found in Google Maps',
+            'OVER_QUERY_LIMIT', 'OVER_DAILY_LIMIT' => 'Google Maps quota exceeded',
+            'REQUEST_DENIED' => 'Google Maps request denied — check API key and enable Places API',
+            'INVALID_REQUEST' => 'Invalid places request',
+            'NOT_FOUND' => 'Place not found in Google Maps',
+            default => 'Could not look up address ('.$status.')',
         };
     }
 

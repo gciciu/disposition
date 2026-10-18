@@ -27,6 +27,8 @@ class DeliveryRouteRepository extends ServiceEntityRepository
             ->addSelect('c')
             ->leftJoin('c.user', 'u')
             ->addSelect('u')
+            ->leftJoin('r.warehouse', 'w')
+            ->addSelect('w')
             ->orderBy('r.createdAt', 'DESC')
             ->getQuery()
             ->getResult();

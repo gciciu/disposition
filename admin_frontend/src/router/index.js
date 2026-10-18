@@ -1,23 +1,30 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import Home from '@/views/HomeView.vue'
+// import Home from '@/views/HomeView.vue'
 import { ensureFreshAccessToken } from '@/api.js'
 import { useAuthStore } from '@/stores/auth.js'
 
 const routes = [
   {
     path: '/',
-    redirect: '/dashboard',
-  },
-  {
-    meta: {
-      titleKey: 'routes.dashboard',
-      requiresAuth: true,
-      requiresAdmin: true,
+    redirect: () => {
+      const token =
+        localStorage.getItem('auth_token') ||
+        sessionStorage.getItem('auth_token') ||
+        localStorage.getItem('refresh_token') ||
+        sessionStorage.getItem('refresh_token')
+      return token ? '/routes' : '/login'
     },
-    path: '/dashboard',
-    name: 'dashboard',
-    component: Home,
   },
+  // {
+  //   meta: {
+  //     titleKey: 'routes.dashboard',
+  //     requiresAuth: true,
+  //     requiresAdmin: true,
+  //   },
+  //   path: '/dashboard',
+  //   name: 'dashboard',
+  //   component: Home,
+  // },
   {
     meta: {
       titleKey: 'routes.deliveryRoutes',
@@ -67,6 +74,47 @@ const routes = [
     path: '/couriers/:id',
     name: 'courier',
     component: () => import('@/views/CourierCardView.vue'),
+  },
+  {
+    meta: {
+      titleKey: 'routes.emailTest',
+      requiresAuth: true,
+      requiresAdmin: true,
+    },
+    path: '/email',
+    name: 'email-test',
+    component: () => import('@/views/EmailTestView.vue'),
+  },
+  {
+    meta: {
+      titleKey: 'routes.warehouses',
+      requiresAuth: true,
+      requiresAdmin: true,
+    },
+    path: '/warehouses',
+    name: 'warehouses',
+    component: () => import('@/views/WarehousesView.vue'),
+  },
+
+  {
+    meta: {
+      titleKey: 'routes.warehouseNew',
+      requiresAuth: true,
+      requiresAdmin: true,
+    },
+    path: '/warehouses/new',
+    name: 'warehouse-new',
+    component: () => import('@/views/WarehouseCardView.vue'),
+  },
+  {
+    meta: {
+      titleKey: 'routes.warehouse',
+      requiresAuth: true,
+      requiresAdmin: true,
+    },
+    path: '/warehouses/:id',
+    name: 'warehouse',
+    component: () => import('@/views/WarehouseCardView.vue'),
   },
   {
     meta: {
@@ -195,7 +243,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated && authStore.isAdmin) {
-    return { name: 'dashboard' }
+    return { name: 'routes' }
   }
 
   return true
