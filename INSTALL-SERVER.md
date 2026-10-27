@@ -137,7 +137,7 @@ Fixture seed users (only if you loaded fixtures):
 
 `VITE_API_URL` stays empty in production — API goes same-origin via `/api`.
 
-Admin `npm run build` is required: Symfony serves `admin_frontend/dist` as `/`.
+Admin `npm run build` is required: Symfony serves `admin_frontend/dist/index.html` as `/`, and copies hashed JS/CSS into `backend/public/spa/` so nginx can serve them.
 
 ```bash
 cd /var/www/delivery/admin_frontend

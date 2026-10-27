@@ -9,8 +9,8 @@ use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
- * Serves the built admin SPA from ../admin_frontend/dist when the site
- * document root is backend/public (typical CloudPanel / PHP-FPM layout).
+ * Serves admin_frontend/dist/index.html at /. Hashed JS/CSS are copied into
+ * public/spa/ by the Vite build so nginx can serve them as static files.
  */
 class AdminSpaController extends AbstractController
 {
