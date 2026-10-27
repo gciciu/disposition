@@ -21,6 +21,10 @@ services:
     App\:
         resource: '../src/'
 
+    App\Controller\AdminSpaController:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
     App\Service\GoogleMapsService:
         arguments:
             $apiKey: '%env(GOOGLE_MAPS_API_KEY)%'

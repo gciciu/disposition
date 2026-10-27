@@ -21,9 +21,10 @@ Recommended domains (replace with yours):
 
 ```
 Client → nginx (delivery / driver)
-           ├─ /                        → admin_frontend/dist or driver_frontend/dist
+           ├─ /                        → PHP-FPM → backend/public (admin SPA from admin_frontend/dist)
            ├─ /api                     → PHP-FPM → backend/public/index.php
            └─ /.well-known/mercure     → proxy → 127.0.0.1:3000
+Driver site document root stays driver_frontend/dist (or a second PHP site).
 ```
 
 One repository clone for everything:
@@ -136,6 +137,8 @@ Fixture seed users (only if you loaded fixtures):
 
 `VITE_API_URL` stays empty in production — API goes same-origin via `/api`.
 
+Admin `npm run build` is required: Symfony serves `admin_frontend/dist` as `/`.
+
 ```bash
 cd /var/www/delivery/admin_frontend
 npm install --no-fund --no-audit
@@ -208,19 +211,12 @@ docker compose -f /var/www/delivery/backend/compose.prod.yaml down 2>/dev/null |
 
 Use in the panel’s custom nginx field. Replace paths and the PHP-FPM socket (from site PHP settings).
 
-### Admin — document root `/var/www/delivery/admin_frontend/dist`
+### Admin — document root `/var/www/delivery/backend/public`
+
+Symfony serves the admin SPA from `admin_frontend/dist` on `/`. Allow that path in `open_basedir` if the panel restricts it.
 
 ```nginx
 client_max_body_size 50m;
-
-location /api {
-    include fastcgi_params;
-    fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-    fastcgi_param SCRIPT_FILENAME /var/www/delivery/backend/public/index.php;
-    fastcgi_param SCRIPT_NAME /index.php;
-    fastcgi_param DOCUMENT_ROOT /var/www/delivery/backend/public;
-    fastcgi_read_timeout 120s;
-}
 
 location /.well-known/mercure {
     proxy_pass http://127.0.0.1:3000;
@@ -235,7 +231,17 @@ location /.well-known/mercure {
 }
 
 location / {
-    try_files $uri $uri/ /index.html;
+    try_files $uri /index.php$is_args$args;
+}
+
+location ~ ^/index\.php(/|$) {
+    include fastcgi_params;
+    fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+    fastcgi_param SCRIPT_FILENAME /var/www/delivery/backend/public/index.php;
+    fastcgi_param SCRIPT_NAME /index.php;
+    fastcgi_param DOCUMENT_ROOT /var/www/delivery/backend/public;
+    fastcgi_read_timeout 120s;
+    internal;
 }
 
 location ~ /\.(?!well-known) {
@@ -243,9 +249,11 @@ location ~ /\.(?!well-known) {
 }
 ```
 
+If the panel already routes all PHP through `index.php`, only the Mercure `location` is needed.
+
 ### Driver — document root `/var/www/delivery/driver_frontend/dist`
 
-Same `/api` and `/.well-known/mercure` blocks (same `SCRIPT_FILENAME` → `backend/public/index.php`).
+Keep `/api` proxied to the same `backend/public/index.php` (driver UI is still a static SPA).
 
 Do **not** wrap in `server { }` — the panel already generates it.
 
@@ -256,20 +264,20 @@ Do **not** wrap in `server { }` — the panel already generates it.
 1. Create two websites: `delivery.example.com`, `driver.example.com`.
 2. PHP-FPM 8.4+, SSL (Let's Encrypt).
 3. Document roots:
-   - admin → `/var/www/delivery/admin_frontend/dist`
+   - admin → `/var/www/delivery/backend/public`
    - driver → `/var/www/delivery/driver_frontend/dist`
 
 If the panel forces `clientX/webY/web`:
 
 ```bash
-ln -sfn /var/www/delivery/admin_frontend/dist /var/www/clients/client1/web1/web
-# same pattern for driver
+ln -sfn /var/www/delivery/backend/public /var/www/clients/client1/web1/web
+# driver still points at driver_frontend/dist
 ```
 
 Owner must be the site user (`webX`).
 
 4. **Options → nginx Directives**: paste section 6 (`location` + `client_max_body_size` only). Use the site’s FPM socket for `fastcgi_pass`.
-5. If `open_basedir` is on, allow `/var/www/delivery/backend` and `/tmp`.
+5. If `open_basedir` is on, allow `/var/www/delivery/backend`, `/var/www/delivery/admin_frontend` and `/tmp`.
 6. `nginx -t && systemctl reload nginx`
 
 ---
@@ -277,12 +285,12 @@ Owner must be the site user (`webX`).
 ## 8. CloudPanel
 
 1. Create two **PHP** sites (8.4+): `delivery.example.com`, `driver.example.com`, enable SSL.
-2. Point document roots at the built SPAs (symlinks are fine):
+2. Admin document root = `backend/public` (Symfony serves `admin_frontend/dist`). Driver stays a static SPA:
 
 ```bash
 # example — adjust user/paths to your sites
 rm -rf /home/delivery/htdocs/delivery.example.com
-ln -sfn /var/www/delivery/admin_frontend/dist /home/delivery/htdocs/delivery.example.com
+ln -sfn /var/www/delivery/backend/public /home/delivery/htdocs/delivery.example.com
 
 rm -rf /home/driver/htdocs/driver.example.com
 ln -sfn /var/www/delivery/driver_frontend/dist /home/driver/htdocs/driver.example.com
@@ -297,7 +305,8 @@ grep fastcgi_pass /etc/nginx/sites-enabled/*example.com*
 # or: ls /home/clp/php*/var/run/*.sock
 ```
 
-4. Permissions:
+4. If `open_basedir` is on, include both `backend` and `admin_frontend` (PHP must read `admin_frontend/dist`).
+5. Permissions:
 
 ```bash
 chown -R APP_USER:APP_USER /var/www/delivery
@@ -372,7 +381,7 @@ Optional host-specific automation draft: `scripts/deploy-test-server.sh` (adapt 
 |---------|--------|
 | 502 on `/api` | FPM socket, `SCRIPT_FILENAME`, `open_basedir`, `backend` permissions |
 | 404 on `/api` | custom `location /api` missing / overwritten |
-| SPA blank / refresh 404 | missing `try_files ... /index.html` |
+| SPA blank / welcome page | `admin_frontend` not built, `open_basedir` blocks `../admin_frontend/dist`, document root not `backend/public` |
 | Mercure fails | `/.well-known/mercure` location, `delivery-mercure` on `:3000`, JWT secret match |
 | CORS | `CORS_ALLOW_ORIGIN` domains |
 | JWT 500 | `config/jwt/*.pem`, `JWT_PASSPHRASE` |
@@ -388,5 +397,5 @@ Optional host-specific automation draft: `scripts/deploy-test-server.sh` (adapt 
 - [ ] Build admin + driver
 - [ ] Mercure binary + systemd `delivery-mercure`
 - [ ] Two panel sites + SSL + document roots
-- [ ] Custom nginx: `/api`, `/.well-known/mercure`, `try_files`
+- [ ] Custom nginx: `/.well-known/mercure`, PHP `index.php` fallback
 - [ ] Smoke tests + UI login
