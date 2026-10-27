@@ -2,7 +2,7 @@ import { onUnmounted, ref } from 'vue'
 import api from '@/api.js'
 
 /**
- * Subscribe to admin realtime WebSocket events.
+ * Subscribe to admin realtime Mercure (SSE) events.
  *
  * @param {{
  *   routeId?: number|string|null|(() => number|string|null|undefined),
@@ -11,7 +11,7 @@ import api from '@/api.js'
  */
 export function useRealtime(options = {}) {
   const connected = ref(false)
-  let socket = null
+  let source = null
   let stopped = false
   let reconnectTimer = null
   let backoffMs = 1000
@@ -34,18 +34,17 @@ export function useRealtime(options = {}) {
     }
   }
 
-  const closeSocket = () => {
-    if (socket) {
-      socket.onopen = null
-      socket.onmessage = null
-      socket.onerror = null
-      socket.onclose = null
+  const closeSource = () => {
+    if (source) {
+      source.onopen = null
+      source.onmessage = null
+      source.onerror = null
       try {
-        socket.close()
+        source.close()
       } catch {
         // ignore
       }
-      socket = null
+      source = null
     }
     connected.value = false
   }
@@ -72,13 +71,32 @@ export function useRealtime(options = {}) {
     return data
   }
 
+  const buildHubUrl = (ticketPayload) => {
+    const hubBase =
+      import.meta.env.VITE_MERCURE_URL ||
+      ticketPayload?.hubUrl ||
+      'http://127.0.0.1:3000/.well-known/mercure'
+
+    const url = new URL(hubBase)
+    const topics = Array.isArray(ticketPayload?.topics) ? ticketPayload.topics : []
+    for (const topic of topics) {
+      if (typeof topic === 'string' && topic.length > 0) {
+        url.searchParams.append('topic', topic)
+      }
+    }
+    if (ticketPayload?.token) {
+      url.searchParams.set('authorization', ticketPayload.token)
+    }
+    return url.toString()
+  }
+
   const connect = async () => {
     if (stopped) {
       return
     }
 
     clearReconnect()
-    closeSocket()
+    closeSource()
 
     let ticketPayload
     try {
@@ -88,32 +106,26 @@ export function useRealtime(options = {}) {
       return
     }
 
-    const ticket = ticketPayload?.ticket
-    const wsBase =
-      import.meta.env.VITE_REALTIME_WS_URL || ticketPayload?.wsUrl || 'ws://127.0.0.1:8090/ws'
-
-    if (!ticket) {
+    if (!ticketPayload?.token) {
       scheduleReconnect()
       return
     }
 
     ticketExpiresAt = Number(ticketPayload.expiresAt) || 0
 
-    const url = `${wsBase}${wsBase.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(ticket)}`
-
     try {
-      socket = new WebSocket(url)
+      source = new EventSource(buildHubUrl(ticketPayload))
     } catch {
       scheduleReconnect()
       return
     }
 
-    socket.onopen = () => {
+    source.onopen = () => {
       connected.value = true
       backoffMs = 1000
     }
 
-    socket.onmessage = (message) => {
+    source.onmessage = (message) => {
       let payload
       try {
         payload = JSON.parse(message.data)
@@ -123,20 +135,12 @@ export function useRealtime(options = {}) {
       if (!payload || typeof payload.event !== 'string') {
         return
       }
-      if (payload.event === 'realtime.connected') {
-        return
-      }
       onEvent(payload.event, payload.data ?? null)
     }
 
-    socket.onerror = () => {
-      // onclose will handle reconnect
-    }
-
-    socket.onclose = () => {
+    source.onerror = () => {
       connected.value = false
-      socket = null
-      // Refresh ticket before reconnect if close to expiry
+      closeSource()
       if (ticketExpiresAt > 0 && ticketExpiresAt * 1000 - Date.now() < 5000) {
         backoffMs = Math.min(backoffMs, 1000)
       }
@@ -147,7 +151,7 @@ export function useRealtime(options = {}) {
   const stop = () => {
     stopped = true
     clearReconnect()
-    closeSocket()
+    closeSource()
   }
 
   const start = () => {

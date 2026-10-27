@@ -1,0 +1,10 @@
+mercure:
+    hubs:
+        default:
+            url: '%env(MERCURE_URL)%'
+            public_url: '%env(MERCURE_PUBLIC_URL)%'
+            # Legacy protocol: topic= query params + mercure JWT claim (simpler for SPA EventSource).
+            protocol_version: '0.x'
+            jwt:
+                secret: '%env(MERCURE_JWT_SECRET)%'
+                publish: ['*']

@@ -1,5 +1,5 @@
 # Configure PHP 8.4 on Windows for this project:
-# - enable required extensions (openssl, pdo_pgsql, ...)
+# - enable required extensions (openssl, pdo_mysql, ...)
 # - set OPENSSL_CONF so RSA key generation works
 # - generate Lexik JWT keypair under backend/config/jwt
 $ErrorActionPreference = "Stop"
@@ -10,9 +10,9 @@ $requiredExtensions = @(
     "gd",
     "intl",
     "mbstring",
+    "mysqli",
     "openssl",
-    "pdo_pgsql",
-    "pgsql",
+    "pdo_mysql",
     "sodium",
     "zip"
 )

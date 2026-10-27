@@ -22,16 +22,16 @@ class RealtimeController extends AbstractController
     #[Route('/ticket', name: 'api_admin_realtime_ticket', methods: ['GET'])]
     public function ticket(Request $request): JsonResponse
     {
-        $channels = ['admin.routes'];
+        $topics = ['admin.routes'];
 
         $routeIdRaw = $request->query->get('routeId');
         if (null !== $routeIdRaw && '' !== $routeIdRaw) {
             if (!is_numeric($routeIdRaw) || (int) $routeIdRaw < 1) {
                 return $this->json(['error' => 'routeId must be a positive integer'], Response::HTTP_BAD_REQUEST);
             }
-            $channels[] = sprintf('admin.routes.%d', (int) $routeIdRaw);
+            $topics[] = sprintf('admin.routes.%d', (int) $routeIdRaw);
         }
 
-        return $this->json($this->tickets->issue($channels));
+        return $this->json($this->tickets->issue($topics));
     }
 }

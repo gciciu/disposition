@@ -5,16 +5,15 @@ namespace App\Service;
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
 use Psr\Log\LoggerInterface;
-use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Component\Mercure\HubInterface;
+use Symfony\Component\Mercure\Update;
+use Symfony\Component\Mercure\Exception\RuntimeException as MercureRuntimeException;
 
 class DriverRealtimePublisher
 {
     public function __construct(
-        private readonly HttpClientInterface $httpClient,
+        private readonly HubInterface $hub,
         private readonly LoggerInterface $logger,
-        private readonly string $internalUrl,
-        private readonly string $secret,
     ) {
     }
 
@@ -26,7 +25,7 @@ class DriverRealtimePublisher
         }
 
         $this->publish(
-            $this->channelsForRoute($routeId),
+            $this->topicsForRoute($routeId),
             'route.started',
             ['route' => $route->toArray()],
         );
@@ -50,7 +49,7 @@ class DriverRealtimePublisher
         }
 
         $this->publish(
-            $this->channelsForRoute($route->getId()),
+            $this->topicsForRoute($route->getId()),
             $event,
             [
                 'order' => $order->toArray(),
@@ -62,7 +61,7 @@ class DriverRealtimePublisher
     /**
      * @return list<string>
      */
-    private function channelsForRoute(int $routeId): array
+    private function topicsForRoute(int $routeId): array
     {
         return [
             'admin.routes',
@@ -71,45 +70,23 @@ class DriverRealtimePublisher
     }
 
     /**
-     * @param list<string>         $channels
+     * @param list<string>         $topics
      * @param array<string, mixed> $data
      */
-    private function publish(array $channels, string $event, array $data): void
+    private function publish(array $topics, string $event, array $data): void
     {
-        $base = rtrim($this->internalUrl, '/');
-        if ('' === $base || '' === $this->secret) {
-            return;
-        }
-
         try {
-            $response = $this->httpClient->request('POST', $base.'/publish', [
-                'headers' => [
-                    'X-Realtime-Secret' => $this->secret,
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json',
-                ],
-                'json' => [
-                    'channels' => $channels,
+            $payload = json_encode(
+                [
                     'event' => $event,
                     'data' => $data,
                 ],
-                'timeout' => 2.0,
-            ]);
-            // Force the lazy response to execute immediately.
-            $status = $response->getStatusCode();
-            if ($status >= 400) {
-                $this->logger->warning('Realtime publish rejected with HTTP {status}', [
-                    'status' => $status,
-                    'event' => $event,
-                ]);
-            }
-        } catch (TransportExceptionInterface $e) {
+                \JSON_THROW_ON_ERROR,
+            );
+
+            $this->hub->publish(new Update($topics, $payload, true));
+        } catch (MercureRuntimeException|\JsonException|\Throwable $e) {
             $this->logger->warning('Realtime publish failed: {message}', [
-                'message' => $e->getMessage(),
-                'event' => $event,
-            ]);
-        } catch (\Throwable $e) {
-            $this->logger->warning('Realtime publish error: {message}', [
                 'message' => $e->getMessage(),
                 'event' => $event,
             ]);

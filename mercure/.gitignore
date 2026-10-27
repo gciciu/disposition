@@ -1,0 +1,11 @@
+# Downloaded hub binary (see scripts/download-mercure.*)
+/mercure
+/mercure.exe
+/*.tar.gz
+/*.zip
+
+# Local secrets / runtime
+.env
+/data/
+/config/
+/*.log

@@ -2,59 +2,56 @@
 
 namespace App\Service;
 
+use Symfony\Component\Mercure\HubInterface;
+use Symfony\Component\Mercure\Jwt\Grant;
+
 class RealtimeTicketService
 {
-    private const DEFAULT_TTL_SECONDS = 60;
+    private const DEFAULT_TTL_SECONDS = 3600;
 
     public function __construct(
-        private readonly string $secret,
-        private readonly string $publicWsUrl,
+        private readonly HubInterface $hub,
     ) {
     }
 
     /**
-     * @param list<string> $channels
+     * @param list<string> $topics
      *
-     * @return array{ticket: string, wsUrl: string, expiresAt: int, channels: list<string>}
+     * @return array{token: string, hubUrl: string, expiresAt: int, topics: list<string>}
      */
-    public function issue(array $channels, int $ttlSeconds = self::DEFAULT_TTL_SECONDS): array
+    public function issue(array $topics, int $ttlSeconds = self::DEFAULT_TTL_SECONDS): array
     {
         $normalized = [];
-        foreach ($channels as $channel) {
-            if (!\is_string($channel) || '' === $channel) {
+        foreach ($topics as $topic) {
+            if (!\is_string($topic) || '' === $topic) {
                 continue;
             }
-            $normalized[$channel] = $channel;
+            $normalized[$topic] = $topic;
         }
-        $channels = array_values($normalized);
+        $topics = array_values($normalized);
 
-        if ([] === $channels) {
-            $channels = ['admin.routes'];
+        if ([] === $topics) {
+            $topics = ['admin.routes'];
         }
 
-        $expiresAt = time() + max(15, $ttlSeconds);
-        $payload = json_encode(
-            [
-                'exp' => $expiresAt,
-                'channels' => $channels,
-            ],
-            \JSON_THROW_ON_ERROR,
+        $factory = $this->hub->getFactory();
+        if (null === $factory) {
+            throw new \RuntimeException('Mercure hub has no JWT token factory configured.');
+        }
+
+        $ttlSeconds = max(60, $ttlSeconds);
+        $expiresAt = time() + $ttlSeconds;
+
+        $token = $factory->create(
+            [new Grant([Grant::ACTION_SUBSCRIBE], $topics)],
+            ['exp' => (new \DateTimeImmutable())->setTimestamp($expiresAt)],
         );
 
-        $payloadB64 = $this->base64UrlEncode($payload);
-        $signature = hash_hmac('sha256', $payloadB64, $this->secret, true);
-        $ticket = $payloadB64.'.'.$this->base64UrlEncode($signature);
-
         return [
-            'ticket' => $ticket,
-            'wsUrl' => $this->publicWsUrl,
+            'token' => $token,
+            'hubUrl' => $this->hub->getPublicUrl(),
             'expiresAt' => $expiresAt,
-            'channels' => $channels,
+            'topics' => $topics,
         ];
-    }
-
-    private function base64UrlEncode(string $raw): string
-    {
-        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
     }
 }

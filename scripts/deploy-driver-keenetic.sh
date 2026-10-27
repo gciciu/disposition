@@ -7,7 +7,7 @@ python3 << 'PY'
 from pathlib import Path
 p = Path("/var/www/delivery.rawen.keenetic.pro/backend/.env.local")
 text = p.read_text()
-new_cors = "CORS_ALLOW_ORIGIN='^https?://(localhost|127\\.0\\.0\\.1|delivery\\.rawen\\.keenetic\\.pro|driver\\.rawen\\.keenetic\\.pro)(:[0-9]+)?$'"
+new_cors = "CORS_ALLOW_ORIGIN='^https?://(localhost|127\\.0\\.0\\.1|tauri\\.localhost|delivery\\.rawen\\.keenetic\\.pro|driver\\.rawen\\.keenetic\\.pro)(:[0-9]+)?$'"
 lines = []
 found = False
 for line in text.splitlines():

@@ -1,17 +1,17 @@
 # Delivery
 
 Stack:
-- `backend` — Symfony 7.x + PHP 8.4 + PostgreSQL 17 (native)
-- `realtime` — Node.js WebSocket hub (driver → admin live updates, port 8090)
+- `backend` — Symfony 7.x + PHP 8.4 + MySQL 8 (native)
+- `mercure` — official Mercure hub binary (driver → admin live updates, port 3000)
 - `admin_frontend` — Tauri + Vue 3 + Tailwind 4, UI на базе [Admin One](https://github.com/justboil/admin-one-vue-tailwind) (port 1420)
 - `driver_frontend` — Tauri + Vue + Tailwind (port 1430)
 
 ## Prerequisites
 
 - Node.js LTS
-- PHP 8.4+ with extensions: `pdo_pgsql`, `pgsql`, `openssl`, `mbstring`, `curl`, `zip`, `intl`, `fileinfo`, `sodium`
+- PHP 8.4+ with extensions: `pdo_mysql`, `mysqli`, `openssl`, `mbstring`, `curl`, `zip`, `intl`, `fileinfo`, `sodium`
 - Composer 2
-- PostgreSQL 17 (native)
+- MySQL 8 (native)
 - Rust (for `npm run tauri dev`)
 
 ### Windows install (winget)
@@ -19,7 +19,7 @@ Stack:
 ```powershell
 winget install --id PHP.PHP.8.4
 # Composer: https://getcomposer.org/download/  (or composer.phar + composer.bat on PATH)
-winget install --id PostgreSQL.PostgreSQL.17
+winget install --id Oracle.MySQL
 ```
 
 Then enable PHP extensions, OpenSSL config, and JWT keys:
@@ -40,23 +40,19 @@ cd driver_frontend && npm install && npm run dev
 - Admin: http://localhost:1420/
 - Driver: http://localhost:1430/
 
-## Realtime WebSocket hub
+## Mercure hub (realtime)
 
-Driver mutations (`route start`, `order complete`, `order refuse`) are pushed to the admin UI over a real WebSocket.
-
-```bash
-cd realtime
-npm install
-npm start
-```
-
-- Hub: `ws://127.0.0.1:8090/ws` (HTTP publish on `http://127.0.0.1:8090`)
-- Backend env (see `backend/.env.local.example`): `REALTIME_INTERNAL_URL`, `REALTIME_PUBLIC_WS_URL`, `REALTIME_SECRET`
-- Hub must use the **same** `REALTIME_SECRET` (set via env when starting, or use the default `dev-realtime-secret-change-me`):
+Driver mutations (`route start`, `order complete`, `order refuse`) are pushed to the admin UI over Mercure (Server-Sent Events).
 
 ```powershell
-$env:REALTIME_SECRET="dev-realtime-secret-change-me"; npm start
+.\scripts\start-mercure.ps1
 ```
+
+First run downloads the binary into `mercure/` and creates `mercure/.env` from `.env.example`.
+
+- Hub: `http://127.0.0.1:3000/.well-known/mercure`
+- Backend env (see `backend/.env.local.example`): `MERCURE_URL`, `MERCURE_PUBLIC_URL`, `MERCURE_JWT_SECRET`
+- JWT secret must match `MERCURE_PUBLISHER_JWT_KEY` / `MERCURE_SUBSCRIBER_JWT_KEY` in `mercure/.env`
 
 Keep this process running alongside the API while developing.
 
@@ -67,7 +63,7 @@ cd admin_frontend && npm run tauri dev
 cd driver_frontend && npm run tauri dev
 ```
 
-## Backend + Postgres
+## Backend + MySQL
 
 1. Copy env and set DB URL / Google key:
 
@@ -78,20 +74,22 @@ copy backend\.env.local.example backend\.env.local
 Default DB URL in `.env.local`:
 
 ```
-DATABASE_URL="postgresql://delivery:delivery@127.0.0.1:5432/delivery?serverVersion=17&charset=utf8"
+DATABASE_URL="mysql://delivery:delivery@127.0.0.1:3306/delivery?serverVersion=8.4.9&charset=utf8mb4"
 ```
 
-2. Start Postgres (if the Windows service is not running):
+2. Start MySQL (if the Windows service is not running):
 
 ```powershell
-.\scripts\start-postgres.ps1
+.\scripts\start-mysql.ps1
 ```
 
-Create role/database once (as superuser `postgres`):
+Create user/database once (as MySQL root):
 
 ```sql
-CREATE ROLE delivery LOGIN PASSWORD 'delivery' CREATEDB;
-CREATE DATABASE delivery OWNER delivery;
+CREATE DATABASE delivery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'delivery'@'localhost' IDENTIFIED BY 'delivery';
+GRANT ALL PRIVILEGES ON delivery.* TO 'delivery'@'localhost';
+FLUSH PRIVILEGES;
 ```
 
 3. Install PHP deps, migrate, seed, serve:
@@ -106,7 +104,7 @@ php -S 127.0.0.1:8080 -t public
 ```
 
 - API: http://127.0.0.1:8080/
-- Postgres: `localhost:5432` / user `delivery` / password `delivery` / db `delivery`
+- MySQL: `localhost:3306` / user `delivery` / password `delivery` / db `delivery`
 
 ## Auth (users & roles)
 
