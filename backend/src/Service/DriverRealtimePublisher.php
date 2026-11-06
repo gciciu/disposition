@@ -31,6 +31,48 @@ class DriverRealtimePublisher
         );
     }
 
+    public function publishRouteCompleted(DeliveryRoute $route): void
+    {
+        $routeId = $route->getId();
+        if (null === $routeId) {
+            return;
+        }
+
+        $this->publish(
+            $this->topicsForRoute($routeId),
+            'route.completed',
+            ['route' => $route->toArray()],
+        );
+    }
+
+    public function publishRouteContinued(DeliveryRoute $route): void
+    {
+        $routeId = $route->getId();
+        if (null === $routeId) {
+            return;
+        }
+
+        $this->publish(
+            $this->topicsForRoute($routeId),
+            'route.continued',
+            ['route' => $route->toArray()],
+        );
+    }
+
+    public function publishRouteDelayed(DeliveryRoute $route): void
+    {
+        $routeId = $route->getId();
+        if (null === $routeId) {
+            return;
+        }
+
+        $this->publish(
+            $this->topicsForRoute($routeId),
+            'route.delayed',
+            ['route' => $route->toArray()],
+        );
+    }
+
     public function publishOrderCompleted(DeliveryOrder $order): void
     {
         $this->publishOrderEvent('order.completed', $order);
@@ -48,11 +90,13 @@ class DriverRealtimePublisher
             return;
         }
 
+        $arrivalTimes = $route->computeArrivalTimes();
+
         $this->publish(
             $this->topicsForRoute($route->getId()),
             $event,
             [
-                'order' => $order->toArray(),
+                'order' => $order->toArray($arrivalTimes[$order->getId()] ?? null),
                 'route' => $route->toArray(),
             ],
         );

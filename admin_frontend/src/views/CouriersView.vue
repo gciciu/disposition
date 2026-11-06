@@ -103,6 +103,7 @@ onMounted(loadCouriers)
               <th>{{ t('couriers.name') }}</th>
               <th>{{ t('couriers.login') }}</th>
               <th>{{ t('couriers.phone') }}</th>
+              <th>{{ t('couriers.subcontractor') }}</th>
               <th>{{ t('couriers.status') }}</th>
               <th />
             </tr>
@@ -117,6 +118,9 @@ onMounted(loadCouriers)
               </td>
               <td :data-label="t('couriers.phone')">
                 {{ courier.phone || '—' }}
+              </td>
+              <td :data-label="t('couriers.subcontractor')">
+                {{ courier.subcontractor || '—' }}
               </td>
               <td :data-label="t('couriers.status')">
                 {{ courier.isActive ? t('couriers.active') : t('couriers.inactive') }}

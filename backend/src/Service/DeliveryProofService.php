@@ -120,8 +120,6 @@ class DeliveryProofService
             ->setProofPath($relativePath)
             ->setProofMime($mime === 'image/jpg' ? 'image/jpeg' : $mime);
 
-        $order->getRoute()?->syncCompletionFromOrders();
-
         $this->em->flush();
         $this->realtime->publishOrderCompleted($order);
 
@@ -141,8 +139,6 @@ class DeliveryProofService
             ->setProofType(null)
             ->setProofPath(null)
             ->setProofMime(null);
-
-        $order->getRoute()?->syncCompletionFromOrders();
 
         $this->em->flush();
         $this->realtime->publishOrderRefused($order);

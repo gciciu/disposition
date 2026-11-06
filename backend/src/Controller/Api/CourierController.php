@@ -3,6 +3,7 @@
 namespace App\Controller\Api;
 
 use App\Entity\Courier;
+use App\Repository\DeliveryRouteRepository;
 use App\Service\CourierService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -18,6 +19,7 @@ class CourierController extends AbstractController
 {
     public function __construct(
         private readonly CourierService $courierService,
+        private readonly DeliveryRouteRepository $routes,
     ) {
     }
 
@@ -30,6 +32,44 @@ class CourierController extends AbstractController
         );
 
         return $this->json(['couriers' => $couriers]);
+    }
+
+    #[Route('/{id}/schedule', name: 'api_admin_couriers_schedule', methods: ['GET'], requirements: ['id' => '\d+'])]
+    public function schedule(Courier $courier, Request $request): JsonResponse
+    {
+        $fromRaw = (string) $request->query->get('from', '');
+        $toRaw = (string) $request->query->get('to', '');
+        $excludeRouteId = $request->query->get('excludeRouteId');
+
+        $from = \DateTimeImmutable::createFromFormat('!Y-m-d', $fromRaw);
+        $to = \DateTimeImmutable::createFromFormat('!Y-m-d', $toRaw);
+        if (false === $from || false === $to) {
+            return $this->json(['error' => 'from and to query params are required (Y-m-d)'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $excludeId = null;
+        if (null !== $excludeRouteId && '' !== $excludeRouteId) {
+            if (!\is_int($excludeRouteId) && !(\is_string($excludeRouteId) && ctype_digit($excludeRouteId))) {
+                return $this->json(['error' => 'excludeRouteId must be an integer'], Response::HTTP_BAD_REQUEST);
+            }
+            $excludeId = (int) $excludeRouteId;
+        }
+
+        $items = [];
+        foreach ($this->routes->findByCourierAndDateRange($courier, $from, $to, $excludeId) as $route) {
+            $date = $route->getScheduledDate();
+            if (null === $date) {
+                continue;
+            }
+            $items[] = [
+                'date' => $date->format('Y-m-d'),
+                'routeId' => $route->getId(),
+                'startedAt' => $route->getStartedAt()?->format(\DateTimeInterface::ATOM),
+                'started' => $route->isStarted(),
+            ];
+        }
+
+        return $this->json(['days' => $items]);
     }
 
     #[Route('/{id}', name: 'api_admin_couriers_show', methods: ['GET'], requirements: ['id' => '\d+'])]

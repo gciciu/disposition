@@ -13,6 +13,7 @@ use App\Service\DeliveryProofService;
 use App\Service\DeliveryRouteMetricsService;
 use App\Service\DriverRealtimePublisher;
 use App\Service\GoogleMapsService;
+use App\Service\RouteFinishService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -36,6 +37,7 @@ class DriverRouteController extends AbstractController
         private readonly DeliveryRouteMetricsService $metrics,
         private readonly GoogleMapsService $googleMaps,
         private readonly DriverRealtimePublisher $realtime,
+        private readonly RouteFinishService $routeFinish,
         private readonly EntityManagerInterface $em,
     ) {
     }
@@ -50,7 +52,7 @@ class DriverRouteController extends AbstractController
 
         $items = array_map(
             static fn (DeliveryRoute $route): array => $route->toListArray(),
-            $this->routes->findAssignedToCourierNewestFirst($courier),
+            $this->routes->findAssignedToCourierFromToday($courier),
         );
 
         return $this->json(['routes' => $items]);
@@ -94,6 +96,8 @@ class DriverRouteController extends AbstractController
                 return $this->json(['error' => 'Route is already started'], Response::HTTP_CONFLICT);
             }
 
+            $this->assertRouteScheduledForToday($route);
+
             $payload = $this->readJsonPayload($request);
 
             if (RouteOriginType::CourierLocation === $route->getOriginType()) {
@@ -113,7 +117,6 @@ class DriverRouteController extends AbstractController
             }
 
             $route->setStartedAt(new \DateTimeImmutable());
-            $route->syncCompletionFromOrders();
             $this->em->flush();
             $this->realtime->publishRouteStarted($route);
 
@@ -122,6 +125,100 @@ class DriverRouteController extends AbstractController
             return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
         } catch (\InvalidArgumentException $e) {
             return $this->json(['error' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+    }
+
+    #[Route('/{id}/finish', name: 'api_driver_routes_finish', methods: ['POST'], requirements: ['id' => '\d+'])]
+    public function finish(int $id, #[CurrentUser] User $user): JsonResponse
+    {
+        try {
+            $courier = $this->requireCourier($user);
+            if ($courier instanceof JsonResponse) {
+                return $courier;
+            }
+
+            $route = $this->routes->findOneAssignedToCourier($id, $courier);
+            if (!$route instanceof DeliveryRoute) {
+                return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+            }
+
+            $this->assertRouteScheduledForToday($route);
+            $this->routeFinish->finish($route);
+
+            return $this->json(['route' => $route->toArray()]);
+        } catch (HttpExceptionInterface $e) {
+            return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
+        } catch (\Throwable $e) {
+            return $this->json(
+                ['error' => 'Could not finish route: '.$e->getMessage()],
+                Response::HTTP_BAD_GATEWAY,
+            );
+        }
+    }
+
+    #[Route('/{id}/continue', name: 'api_driver_routes_continue', methods: ['POST'], requirements: ['id' => '\d+'])]
+    public function continueRoute(int $id, #[CurrentUser] User $user): JsonResponse
+    {
+        try {
+            $courier = $this->requireCourier($user);
+            if ($courier instanceof JsonResponse) {
+                return $courier;
+            }
+
+            $route = $this->routes->findOneAssignedToCourier($id, $courier);
+            if (!$route instanceof DeliveryRoute) {
+                return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+            }
+
+            $this->assertRouteScheduledForToday($route);
+            $this->routeFinish->continueRoute($route);
+
+            return $this->json(['route' => $route->toArray()]);
+        } catch (HttpExceptionInterface $e) {
+            return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
+        }
+    }
+
+    #[Route('/{id}/delay', name: 'api_driver_routes_delay', methods: ['POST'], requirements: ['id' => '\d+'])]
+    public function reportDelay(int $id, Request $request, #[CurrentUser] User $user): JsonResponse
+    {
+        try {
+            $courier = $this->requireCourier($user);
+            if ($courier instanceof JsonResponse) {
+                return $courier;
+            }
+
+            $route = $this->routes->findOneAssignedToCourier($id, $courier);
+            if (!$route instanceof DeliveryRoute) {
+                return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+            }
+
+            $this->assertRouteStarted($route);
+
+            $payload = $this->readJsonPayload($request);
+            $minutesRaw = $payload['minutes'] ?? null;
+            if (\is_string($minutesRaw) && is_numeric($minutesRaw)) {
+                $minutesRaw = (int) $minutesRaw;
+            }
+            if (!\is_int($minutesRaw) && !\is_float($minutesRaw)) {
+                return $this->json(['error' => 'minutes is required'], Response::HTTP_BAD_REQUEST);
+            }
+
+            $minutes = (int) $minutesRaw;
+            if ($minutes < 1 || $minutes > 180) {
+                return $this->json(
+                    ['error' => 'minutes must be between 1 and 180'],
+                    Response::HTTP_BAD_REQUEST,
+                );
+            }
+
+            $route->addDelayMinutes($minutes);
+            $this->em->flush();
+            $this->realtime->publishRouteDelayed($route);
+
+            return $this->json(['route' => $route->toArray()]);
+        } catch (HttpExceptionInterface $e) {
+            return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
         }
     }
 
@@ -182,6 +279,7 @@ class DriverRouteController extends AbstractController
                 $file,
                 $deliveredIndexes,
             );
+            $this->finishRouteIfAllStopsDone($updated->getRoute());
 
             return $this->json($this->orderMutationResponse($updated));
         } catch (HttpExceptionInterface $e) {
@@ -216,6 +314,7 @@ class DriverRouteController extends AbstractController
             $this->assertRouteStarted($order->getRoute());
 
             $updated = $this->proofService->refuse($order);
+            $this->finishRouteIfAllStopsDone($updated->getRoute());
 
             return $this->json($this->orderMutationResponse($updated));
         } catch (HttpExceptionInterface $e) {
@@ -323,12 +422,37 @@ class DriverRouteController extends AbstractController
     private function assertRouteStarted(?DeliveryRoute $route): void
     {
         if (!$route instanceof DeliveryRoute || !$route->isStarted()) {
-            throw new ConflictHttpException('Route must be started before completing or refusing deliveries');
+            throw new ConflictHttpException('Route must be started before this action');
         }
 
         if ($route->isCompleted()) {
             throw new ConflictHttpException('Route is already completed');
         }
+
+        $this->assertRouteScheduledForToday($route);
+    }
+
+    private function assertRouteScheduledForToday(DeliveryRoute $route): void
+    {
+        $scheduled = $route->getScheduledDate();
+        $today = (new \DateTimeImmutable('today'))->format('Y-m-d');
+
+        if (null === $scheduled || $scheduled->format('Y-m-d') !== $today) {
+            throw new ConflictHttpException('Actions are only allowed on today\'s route');
+        }
+    }
+
+    private function finishRouteIfAllStopsDone(?DeliveryRoute $route): void
+    {
+        if (!$route instanceof DeliveryRoute) {
+            return;
+        }
+
+        if (!$route->isStarted() || $route->isCompleted() || !$route->areAllOrdersFinal()) {
+            return;
+        }
+
+        $this->routeFinish->finish($route);
     }
 
     /**
@@ -337,9 +461,13 @@ class DriverRouteController extends AbstractController
     private function orderMutationResponse(DeliveryOrder $order): array
     {
         $route = $order->getRoute();
+        $arrivalTime = null;
+        if ($route instanceof DeliveryRoute) {
+            $arrivalTime = $route->computeArrivalTimes()[$order->getId()] ?? null;
+        }
 
         return [
-            'order' => $order->toArray(),
+            'order' => $order->toArray($arrivalTime),
             'route' => $route instanceof DeliveryRoute ? $route->toArray() : [],
         ];
     }

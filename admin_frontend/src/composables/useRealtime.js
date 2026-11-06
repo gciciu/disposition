@@ -180,13 +180,20 @@ export function applyRouteListPatch(existing, routePayload) {
     ...existing,
     progress: routePayload.progress ?? existing.progress,
     deliveredCount: routePayload.deliveredCount ?? existing.deliveredCount,
+    completedCount: routePayload.completedCount ?? existing.completedCount,
     orderCount: routePayload.orderCount ?? existing.orderCount,
-    startedAt: routePayload.startedAt ?? existing.startedAt,
-    completedAt: routePayload.completedAt ?? existing.completedAt,
+    startedAt: Object.prototype.hasOwnProperty.call(routePayload, 'startedAt')
+      ? routePayload.startedAt
+      : existing.startedAt,
+    completedAt: Object.prototype.hasOwnProperty.call(routePayload, 'completedAt')
+      ? routePayload.completedAt
+      : existing.completedAt,
     totalDurationSeconds: routePayload.totalDurationSeconds ?? existing.totalDurationSeconds,
     totalDistanceMeters: routePayload.totalDistanceMeters ?? existing.totalDistanceMeters,
     totalDurationText: routePayload.totalDurationText ?? existing.totalDurationText,
     totalDistanceText: routePayload.totalDistanceText ?? existing.totalDistanceText,
     mapsUrl: routePayload.mapsUrl ?? existing.mapsUrl,
+    scheduledDate: routePayload.scheduledDate ?? existing.scheduledDate,
+    scheduledStartTime: routePayload.scheduledStartTime ?? existing.scheduledStartTime,
   }
 }

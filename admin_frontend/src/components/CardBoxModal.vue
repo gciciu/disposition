@@ -25,6 +25,7 @@ const props = defineProps({
   hasCancel: Boolean,
   isForm: Boolean,
   isProcessing: Boolean,
+  wide: Boolean,
   modelValue: [String, Number, Boolean],
 })
 
@@ -67,7 +68,12 @@ onUnmounted(() => {
 <template>
   <OverlayLayer v-if="value" @overlay-click="cancel">
     <CardBox
-      class="z-50 max-h-[calc(100dvh-(--spacing(40)))] w-11/12 animate-fade-in shadow-lg md:w-3/5 lg:w-2/5 xl:w-4/12"
+      class="z-50 max-h-[calc(100dvh-(--spacing(40)))] w-11/12 animate-fade-in shadow-lg"
+      :class="
+        wide
+          ? 'md:w-4/5 lg:w-3/5 xl:w-5/12'
+          : 'md:w-3/5 lg:w-2/5 xl:w-4/12'
+      "
       is-modal
       has-component-layout
       :is-form="isForm"

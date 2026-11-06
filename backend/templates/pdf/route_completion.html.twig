@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ header.title }}</title>
+    <style>
+        @page {
+            margin: {{ part == 'cover' ? '14mm 12mm 14mm 12mm' : '12mm 10mm 12mm 10mm' }};
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: DejaVu Sans, sans-serif;
+            font-size: {{ part == 'cover' ? '9pt' : '8.5pt' }};
+            color: #111;
+            line-height: 1.35;
+        }
+
+        h1, h2, h3 {
+            margin: 0 0 8px;
+            font-weight: bold;
+        }
+
+        .cover-title {
+            font-size: 12pt;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .cover-meta {
+            font-size: 9pt;
+            margin-bottom: 10px;
+        }
+
+        .cover-fromto {
+            font-size: 9pt;
+            margin-bottom: 14px;
+        }
+
+        .cover-map {
+            width: 100%;
+            border: 1px solid #ccc;
+            text-align: center;
+            padding: 6px;
+        }
+
+        .cover-map img {
+            /* Keep geographic aspect ratio — Dompdf stretches if width:100% is forced. */
+            max-width: 100%;
+            max-height: 230mm;
+            width: auto;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .cover-map-placeholder {
+            color: #888;
+            padding: 160px 20px;
+            font-size: 10pt;
+        }
+
+        .section-title {
+            font-size: 11pt;
+            margin: 0 0 10px;
+        }
+
+        table.data {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        table.data th,
+        table.data td {
+            border: 1px solid #333;
+            padding: 3px 4px;
+            vertical-align: top;
+            word-wrap: break-word;
+        }
+
+        table.data th {
+            background: #eee;
+            font-size: 8pt;
+            text-align: left;
+        }
+
+        .col-pos { width: 4%; }
+        .col-client { width: 20%; }
+        .col-products { width: 28%; }
+        .col-kg { width: 6%; text-align: right; }
+        .col-date { width: 9%; }
+        .col-time { width: 6%; }
+        .col-delivered { width: 7%; }
+        .col-sign { width: 8%; }
+        .col-remarks { width: 12%; }
+
+        .client-name {
+            font-weight: bold;
+        }
+
+        .client-phone {
+            font-size: 8pt;
+            color: #333;
+        }
+
+        .products-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .products-list li {
+            margin: 0 0 2px;
+        }
+
+        .signature img {
+            max-width: 70px;
+            max-height: 36px;
+        }
+
+        .remarks {
+            font-size: 8pt;
+            white-space: pre-wrap;
+        }
+
+        .page-break {
+            page-break-before: always;
+        }
+
+        .accessory-table .col-acc-pos { width: 10%; }
+        .accessory-table .col-acc-desc { width: 75%; }
+        .accessory-table .col-acc-delivered { width: 15%; }
+
+        .return-block {
+            border: 1px solid #333;
+            padding: 8px 10px;
+            margin: 0 0 12px;
+        }
+
+        .return-block .label {
+            font-weight: bold;
+        }
+
+        .footer-note {
+            margin-top: 16px;
+            font-size: 8pt;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+{% if part != 'body' %}
+{# —— 1) Cover (portrait) —— #}
+<section class="cover">
+    <div class="cover-title">{{ header.title }}</div>
+    <div class="cover-meta">{{ header.reportDate }}</div>
+    {% if header.fromAddress or header.toAddress %}
+        <div class="cover-fromto">
+            Von {{ header.fromAddress|default('—') }}
+            nach {{ header.toAddress|default('—') }}
+        </div>
+    {% endif %}
+
+    <div class="cover-map">
+        {% if header.mapImageDataUri %}
+            <img src="{{ header.mapImageDataUri }}" alt="Routenübersicht">
+        {% else %}
+            <div class="cover-map-placeholder">Kartenübersicht (Platzhalter)</div>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
+{% if part != 'cover' %}
+{# —— 2) Delivery table (landscape) —— #}
+<section>
+    <h2 class="section-title">
+        {{ header.title }}{% if header.driverName %} | Fahrer: {{ header.driverName }}{% endif %}
+    </h2>
+
+    <table class="data">
+        <thead>
+            <tr>
+                <th class="col-pos">Pos</th>
+                <th class="col-client">Kunde</th>
+                <th class="col-products">Artikel</th>
+                <th class="col-kg">(kg)</th>
+                <th class="col-date">Datum</th>
+                <th class="col-time">Uhrzeit</th>
+                <th class="col-delivered">Geliefert</th>
+                <th class="col-sign">Unterschrift</th>
+                <th class="col-remarks">Bemerkungen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stop in stops %}
+                <tr>
+                    <td class="col-pos">{{ stop.position }}</td>
+                    <td class="col-client">
+                        <div class="client-name">{{ stop.clientName }}</div>
+                        <div>{{ stop.address }}</div>
+                        {% if stop.phone %}
+                            <div class="client-phone">{{ stop.phone }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="col-products">
+                        {% if stop.products %}
+                            <ul class="products-list">
+                                {% for product in stop.products %}
+                                    <li>{{ product }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </td>
+                    <td class="col-kg">
+                        {% if stop.weightKg is not null %}
+                            {{ stop.weightKg|number_format(2, '.', '') }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="col-date">{{ stop.date|default('—') }}</td>
+                    <td class="col-time">{{ stop.time|default('—') }}</td>
+                    <td class="col-delivered">{{ stop.delivered ? 'Ja' : 'Nein' }}</td>
+                    <td class="col-sign signature">
+                        {% if stop.signatureImageDataUri %}
+                            <img src="{{ stop.signatureImageDataUri }}" alt="Unterschrift">
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="col-remarks remarks">{{ stop.remarksText()|default('') }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="9">Keine Stopps</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+{# —— 3) Accessories (Zubehör) —— #}
+{% if accessories is not empty %}
+<section class="page-break">
+    <h2 class="section-title">
+        Zubehör für {{ header.title }}{% if header.driverName %} | Fahrer: {{ header.driverName }}{% endif %}
+    </h2>
+
+    <table class="data accessory-table">
+        <thead>
+            <tr>
+                <th class="col-acc-pos">Pos</th>
+                <th class="col-acc-desc">Zubehör</th>
+                <th class="col-acc-delivered">Geliefert</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in accessories %}
+                <tr>
+                    <td>{{ row.position }}</td>
+                    <td>{{ row.description }}</td>
+                    <td>{{ row.delivered ? 'Ja' : 'Nein' }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endif %}
+
+{# —— 4) Returns (Retourschein) —— #}
+{% if returns is not empty %}
+<section class="page-break">
+    <h2 class="section-title">Retourschein für: {{ header.title }}</h2>
+    {% if header.driverName %}
+        <div style="margin-bottom: 12px;">Fahrer: {{ header.driverName }}</div>
+    {% endif %}
+
+    {% for ret in returns %}
+        <div class="return-block">
+            <div><span class="label">Pos. {{ ret.position }}</span> {{ ret.returnType }}</div>
+            <div>{{ ret.clientName }}</div>
+            <div>{{ ret.address }}</div>
+            <div>
+                <span class="label">Artikel:</span>
+                {{ ret.products|join(', ') }}
+            </div>
+            <div><span class="label">Geliefert:</span> {{ ret.deliveredLabel }}</div>
+            {% if ret.remark %}
+                <div><span class="label">Bemerkung:</span> {{ ret.remark }}</div>
+            {% endif %}
+        </div>
+    {% endfor %}
+</section>
+{% endif %}
+
+{% if footerLabel %}
+    <div class="footer-note">{{ footerLabel }}</div>
+{% endif %}
+{% endif %}
+
+</body>
+</html>

@@ -12,6 +12,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: DeliveryRouteRepository::class)]
 #[ORM\Table(name: 'delivery_route')]
+#[ORM\UniqueConstraint(name: 'uniq_delivery_route_courier_scheduled_date', columns: ['courier_id', 'scheduled_date'])]
 class DeliveryRoute
 {
     #[ORM\Id]
@@ -54,11 +55,31 @@ class DeliveryRoute
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $completedAt = null;
 
+    /** Relative path under var/uploads for the generated completion PDF. */
+    #[ORM\Column(length: 512, nullable: true)]
+    private ?string $completionPdfPath = null;
+
     #[ORM\Column(nullable: true)]
     private ?float $startLat = null;
 
     #[ORM\Column(nullable: true)]
     private ?float $startLng = null;
+
+    /** Planned delivery day (Mon–Fri). */
+    #[ORM\Column(type: 'date_immutable', nullable: true)]
+    private ?\DateTimeImmutable $scheduledDate = null;
+
+    /** Planned start time of day (optional). */
+    #[ORM\Column(type: 'time_immutable', nullable: true)]
+    private ?\DateTimeImmutable $scheduledStartTime = null;
+
+    /** Total cargo weight in kg from the import PDF. */
+    #[ORM\Column(type: 'float', nullable: true)]
+    private ?float $totalWeightKg = null;
+
+    /** Cumulative courier-reported delay in minutes (shifts all planned arrivals). */
+    #[ORM\Column(options: ['default' => 0])]
+    private int $delayMinutes = 0;
 
     /** @var Collection<int, DeliveryOrder> */
     #[ORM\OneToMany(targetEntity: DeliveryOrder::class, mappedBy: 'route', cascade: ['persist', 'remove'], orphanRemoval: true)]
@@ -220,6 +241,24 @@ class DeliveryRoute
         return null !== $this->completedAt;
     }
 
+    public function getCompletionPdfPath(): ?string
+    {
+        return $this->completionPdfPath;
+    }
+
+    public function setCompletionPdfPath(?string $completionPdfPath): static
+    {
+        $completionPdfPath = null !== $completionPdfPath ? trim($completionPdfPath) : null;
+        $this->completionPdfPath = '' === $completionPdfPath ? null : $completionPdfPath;
+
+        return $this;
+    }
+
+    public function hasCompletionPdf(): bool
+    {
+        return null !== $this->completionPdfPath && '' !== $this->completionPdfPath;
+    }
+
     public function getStartLat(): ?float
     {
         return $this->startLat;
@@ -238,25 +277,87 @@ class DeliveryRoute
         return $this;
     }
 
+    public function getScheduledDate(): ?\DateTimeImmutable
+    {
+        return $this->scheduledDate;
+    }
+
+    public function setScheduledDate(?\DateTimeImmutable $scheduledDate): static
+    {
+        $this->scheduledDate = $scheduledDate;
+
+        return $this;
+    }
+
+    public function getScheduledStartTime(): ?\DateTimeImmutable
+    {
+        return $this->scheduledStartTime;
+    }
+
+    public function setScheduledStartTime(?\DateTimeImmutable $scheduledStartTime): static
+    {
+        $this->scheduledStartTime = $scheduledStartTime;
+
+        return $this;
+    }
+
+    public function getTotalWeightKg(): ?float
+    {
+        return $this->totalWeightKg;
+    }
+
+    public function setTotalWeightKg(?float $totalWeightKg): static
+    {
+        $this->totalWeightKg = $totalWeightKg;
+
+        return $this;
+    }
+
+    public function getDelayMinutes(): int
+    {
+        return $this->delayMinutes;
+    }
+
+    public function setDelayMinutes(int $delayMinutes): static
+    {
+        $this->delayMinutes = max(0, $delayMinutes);
+
+        return $this;
+    }
+
+    public function addDelayMinutes(int $minutes): static
+    {
+        if ($minutes > 0) {
+            $this->delayMinutes += $minutes;
+        }
+
+        return $this;
+    }
+
     /**
-     * Mark completed when every stop is delivered or refused.
+     * True when every stop is delivered or refused (ready to finish / auto-finish).
      */
-    public function syncCompletionFromOrders(): static
+    public function areAllOrdersFinal(): bool
     {
         if ($this->orders->isEmpty()) {
-            return $this;
+            return false;
         }
 
         foreach ($this->orders as $order) {
             if (!$order->getStatus()->isFinal()) {
-                return $this;
+                return false;
             }
         }
 
-        if (null === $this->completedAt) {
-            $this->completedAt = new \DateTimeImmutable();
-        }
+        return true;
+    }
 
+    /**
+     * @deprecated Use {@see areAllOrdersFinal()} + {@see \App\Service\RouteFinishService::finish()}
+     * Kept as a no-op alias so older call sites do not silently mark the route done without a PDF.
+     */
+    public function syncCompletionFromOrders(): static
+    {
         return $this;
     }
 
@@ -305,7 +406,9 @@ class DeliveryRoute
      *     originType: string,
      *     warehouse: array{id: int|null, name: string, address: string}|null,
      *     startedAt: string|null,
-     *     completedAt: string|null
+     *     completedAt: string|null,
+     *     hasCompletionPdf: bool,
+     *     allOrdersFinal: bool
      * }
      */
     public function toListArray(): array
@@ -331,9 +434,16 @@ class DeliveryRoute
             'name' => $this->name,
             'sourceFilename' => $this->sourceFilename,
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
+            'scheduledDate' => $this->scheduledDate?->format('Y-m-d'),
+            'scheduledStartTime' => $this->scheduledStartTime?->format('H:i'),
             'orderCount' => $orderCount,
             'deliveredCount' => $deliveredCount,
+            'completedCount' => $completedCount,
             'progress' => $progress,
+            'totalWeightKg' => $this->totalWeightKg,
+            'totalWeightText' => null !== $this->totalWeightKg
+                ? self::formatWeight($this->totalWeightKg)
+                : null,
             'totalDurationSeconds' => $this->totalDurationSeconds,
             'totalDistanceMeters' => $this->totalDistanceMeters,
             'totalDurationText' => null !== $this->totalDurationSeconds
@@ -351,6 +461,7 @@ class DeliveryRoute
                     'phone' => $courier->getPhone(),
                 ]
                 : null,
+            'subcontractor' => $courier?->getSubcontractor(),
             'originType' => $this->originType->value,
             'warehouse' => null !== $warehouse
                 ? [
@@ -363,6 +474,9 @@ class DeliveryRoute
                 : null,
             'startedAt' => $this->startedAt?->format(\DateTimeInterface::ATOM),
             'completedAt' => $this->completedAt?->format(\DateTimeInterface::ATOM),
+            'hasCompletionPdf' => $this->hasCompletionPdf(),
+            'allOrdersFinal' => $this->areAllOrdersFinal(),
+            'delayMinutes' => $this->delayMinutes,
         ];
     }
 
@@ -386,16 +500,71 @@ class DeliveryRoute
      */
     public function toArray(): array
     {
+        $arrivalTimes = $this->computeArrivalTimes();
+
         return [
             ...$this->toListArray(),
             'orders' => array_map(
-                static fn (DeliveryOrder $order): array => $order->toArray(),
+                static fn (DeliveryOrder $order): array => $order->toArray(
+                    $arrivalTimes[$order->getId()] ?? null,
+                ),
                 $this->orders->toArray(),
             ),
         ];
     }
 
-    private static function formatDuration(int $seconds): string
+    /**
+     * Planned arrival clock times (H:i) keyed by order id.
+     *
+     * arrival(1) = scheduledStartTime + travel_to(1)
+     * arrival(n) = arrival(n-1) + unload(n-1) + travel_to(n)
+     *
+     * @return array<int, string|null>
+     */
+    public function computeArrivalTimes(): array
+    {
+        $result = [];
+        if (null === $this->scheduledStartTime) {
+            foreach ($this->orders as $order) {
+                if (null !== $order->getId()) {
+                    $result[$order->getId()] = null;
+                }
+            }
+
+            return $result;
+        }
+
+        $cursorSeconds = ((int) $this->scheduledStartTime->format('H')) * 3600
+            + ((int) $this->scheduledStartTime->format('i')) * 60
+            + ($this->delayMinutes * 60);
+
+        foreach ($this->orders as $order) {
+            $cursorSeconds += $order->getTravelDurationSeconds() ?? 0;
+            $arrival = self::formatClockTime($cursorSeconds);
+            if (null !== $order->getId()) {
+                $result[$order->getId()] = $arrival;
+            }
+            $cursorSeconds += $order->getUnloadingDurationMinutes() * 60;
+        }
+
+        return $result;
+    }
+
+    private static function formatClockTime(int $secondsFromMidnight): string
+    {
+        // Allow schedules that spill past midnight (e.g. late evening routes).
+        $normalized = $secondsFromMidnight % 86400;
+        if ($normalized < 0) {
+            $normalized += 86400;
+        }
+
+        $hours = intdiv($normalized, 3600);
+        $minutes = intdiv($normalized % 3600, 60);
+
+        return sprintf('%02d:%02d', $hours, $minutes);
+    }
+
+    public static function formatDuration(int $seconds): string
     {
         $hours = intdiv($seconds, 3600);
         $minutes = intdiv($seconds % 3600, 60);
@@ -407,12 +576,17 @@ class DeliveryRoute
         return sprintf('%dm', max(1, $minutes));
     }
 
-    private static function formatDistance(int $meters): string
+    public static function formatDistance(int $meters): string
     {
         if ($meters >= 1000) {
             return sprintf('%.1f km', $meters / 1000);
         }
 
         return sprintf('%d m', $meters);
+    }
+
+    public static function formatWeight(float $kg): string
+    {
+        return number_format($kg, 1, ',', '').' KG';
     }
 }

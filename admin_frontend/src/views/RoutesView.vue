@@ -8,6 +8,7 @@ import {
   mdiUpload,
   mdiPencil,
   mdiTrashCan,
+  mdiMap,
   mdiLoading,
 } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
@@ -18,21 +19,24 @@ import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
-import BaseLevel from '@/components/BaseLevel.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
+import RouteWeekCard from '@/components/RouteWeekCard.vue'
+import RouteAssignModal from '@/components/RouteAssignModal.vue'
 import api from '@/api.js'
 import { applyRouteListPatch, useRealtime } from '@/composables/useRealtime.js'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 
-const routes = ref([])
+const weeks = ref([])
+const unscheduled = ref([])
 const loading = ref(false)
-const importing = ref(false)
 const deleting = ref(false)
-const fileInput = ref(null)
 const deleteTarget = ref(null)
+const assignOpen = ref(false)
+const assignMode = ref('import')
+const assignRoute = ref(null)
 
 const isDeleteModalActive = computed({
   get: () => !!deleteTarget.value,
@@ -43,11 +47,16 @@ const isDeleteModalActive = computed({
   },
 })
 
+const isEmpty = computed(
+  () => !loading.value && weeks.value.length === 0 && unscheduled.value.length === 0,
+)
+
 const loadRoutes = async () => {
   loading.value = true
   try {
     const { data } = await api.get('/api/admin/routes')
-    routes.value = data.routes ?? []
+    weeks.value = data.weeks ?? []
+    unscheduled.value = data.unscheduled ?? []
   } catch (e) {
     toast.error(e.response?.data?.error || t('deliveryRoutes.loadFailed'))
   } finally {
@@ -55,8 +64,26 @@ const loadRoutes = async () => {
   }
 }
 
-const editRoute = (id) => {
+const openImport = () => {
+  assignMode.value = 'import'
+  assignRoute.value = null
+  assignOpen.value = true
+}
+
+const openEdit = (route) => {
+  assignMode.value = 'edit'
+  assignRoute.value = route
+  assignOpen.value = true
+}
+
+const openDetail = (id) => {
   router.push({ name: 'route-detail', params: { id } })
+}
+
+const openMaps = (route) => {
+  if (route?.mapsUrl) {
+    window.open(route.mapsUrl, '_blank', 'noopener,noreferrer')
+  }
 }
 
 const askDelete = (route) => {
@@ -83,80 +110,51 @@ const confirmDelete = async () => {
   }
 }
 
-const triggerImport = () => {
-  fileInput.value?.click()
-}
-
-const onFileSelected = async (event) => {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) {
-    return
-  }
-
-  importing.value = true
-
-  const formData = new FormData()
-  formData.append('file', file)
-
-  try {
-    const { data } = await api.post('/api/admin/routes/import', formData)
-    const route = data.route
-    toast.success(
-      t('deliveryRoutes.importSuccess', {
-        name: route.name,
-        count: route.orderCount ?? route.orders?.length ?? 0,
-      }),
-    )
-    await loadRoutes()
-  } catch (e) {
-    const payload = e.response?.data
-    const invalidAddresses = Array.isArray(payload?.invalidAddresses)
-      ? payload.invalidAddresses
-      : []
-    let message = payload?.error || t('deliveryRoutes.importFailed')
-    if (invalidAddresses.length) {
-      const details = invalidAddresses
-        .map(
-          (item) =>
-            `#${item.position} ${item.clientName} — ${item.address}${
-              item.error ? ` (${item.error})` : ''
-            }`,
-        )
-        .join('\n')
-      message = `${message}\n${details}`
+const recalculateWeekTotals = (week) => {
+  let orderCount = 0
+  let completedCount = 0
+  for (const day of week.days ?? []) {
+    if (!day.route) {
+      continue
     }
-    toast.error(message, { timeout: invalidAddresses.length ? 8000 : 4000 })
-  } finally {
-    importing.value = false
+    orderCount += day.route.orderCount ?? 0
+    completedCount += day.route.completedCount ?? day.route.deliveredCount ?? 0
   }
-}
-
-const formatDate = (value) => {
-  if (!value) {
-    return '—'
-  }
-  try {
-    return new Date(value).toLocaleString(locale.value)
-  } catch {
-    return value
-  }
+  week.orderCount = orderCount
+  week.completedCount = completedCount
 }
 
 const patchRouteFromEvent = (routePayload) => {
   if (!routePayload?.id) {
     return
   }
-  const index = routes.value.findIndex((item) => item.id === routePayload.id)
-  if (index === -1) {
-    return
+
+  for (const week of weeks.value) {
+    for (const day of week.days ?? []) {
+      if (day.route?.id === routePayload.id) {
+        day.route = applyRouteListPatch(day.route, routePayload)
+        recalculateWeekTotals(week)
+        return
+      }
+    }
   }
-  routes.value[index] = applyRouteListPatch(routes.value[index], routePayload)
+
+  const index = unscheduled.value.findIndex((item) => item.id === routePayload.id)
+  if (index !== -1) {
+    unscheduled.value[index] = applyRouteListPatch(unscheduled.value[index], routePayload)
+  }
 }
 
 const { start: startRealtime } = useRealtime({
   onEvent: (event, data) => {
-    if (event === 'route.started' || event === 'order.completed' || event === 'order.refused') {
+    if (
+      event === 'route.started' ||
+      event === 'route.completed' ||
+      event === 'route.continued' ||
+      event === 'route.delayed' ||
+      event === 'order.completed' ||
+      event === 'order.refused'
+    ) {
       patchRouteFromEvent(data?.route)
     }
   },
@@ -173,23 +171,14 @@ onMounted(() => {
     <SectionMain>
       <SectionTitleLineWithButton :icon="mdiRoutes" :title="t('deliveryRoutes.title')" main>
         <BaseButton
-          :label="importing ? t('deliveryRoutes.importing') : t('deliveryRoutes.import')"
-          :icon="importing ? mdiLoading : mdiUpload"
+          :label="t('deliveryRoutes.import')"
+          :icon="mdiUpload"
           color="info"
-          :disabled="importing"
-          @click="triggerImport"
+          @click="openImport"
         />
       </SectionTitleLineWithButton>
 
-      <input
-        ref="fileInput"
-        type="file"
-        accept="application/pdf,.pdf"
-        class="hidden"
-        @change="onFileSelected"
-      />
-
-      <CardBox v-if="!loading && routes.length === 0">
+      <CardBox v-if="isEmpty">
         <CardBoxComponentEmpty />
       </CardBox>
 
@@ -200,84 +189,81 @@ onMounted(() => {
         </div>
       </CardBox>
 
-      <CardBox v-else class="mb-6" has-table>
-        <table>
-          <thead>
-            <tr>
-              <th>{{ t('deliveryRoutes.name') }}</th>
-              <th>{{ t('deliveryRoutes.courier') }}</th>
-              <th>{{ t('deliveryRoutes.warehouse') }}</th>
-              <th>{{ t('deliveryRoutes.orders') }}</th>
-              <th>{{ t('deliveryRoutes.progress') }}</th>
-              <th>{{ t('deliveryRoutes.created') }}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="route in routes" :key="route.id">
-              <td :data-label="t('deliveryRoutes.name')">
-                {{ route.name }}
-              </td>
-              <td :data-label="t('deliveryRoutes.courier')">
-                {{ route.courier?.name || t('deliveryRoutes.courierUnassigned') }}
-              </td>
-              <td :data-label="t('deliveryRoutes.warehouse')">
+      <template v-else>
+        <RouteWeekCard
+          v-for="week in weeks"
+          :key="`${week.courier?.id}-${week.weekStart}`"
+          :week="week"
+          @edit="openEdit"
+          @delete="askDelete"
+          @open-maps="openMaps"
+          @open-detail="openDetail"
+        />
+
+        <div v-if="unscheduled.length" class="mt-6 mb-2">
+          <h3 class="mb-3 text-base font-semibold">{{ t('deliveryRoutes.unscheduledTitle') }}</h3>
+          <CardBox
+            v-for="route in unscheduled"
+            :key="route.id"
+            class="mb-4"
+          >
+            <div class="space-y-3 p-4 lg:px-6">
+              <div class="text-lg font-semibold">{{ route.name }}</div>
+              <div class="text-sm text-gray-600 dark:text-slate-300">
                 {{
-                  route.originType === 'courier_location' || !route.warehouse?.name
-                    ? t('deliveryRoutes.warehouseCourierLocation')
-                    : route.warehouse.name
+                  t('deliveryRoutes.completedCount', {
+                    completed: route.completedCount ?? route.deliveredCount ?? 0,
+                    total: route.orderCount ?? 0,
+                  })
                 }}
-              </td>
-              <td :data-label="t('deliveryRoutes.orders')">
-                {{ route.orderCount }}
-              </td>
-              <td :data-label="t('deliveryRoutes.progress')" class="lg:w-40">
-                <div class="flex flex-col gap-1">
-                  <progress
-                    class="flex w-2/5 self-center lg:w-full"
-                    max="100"
-                    :value="route.progress ?? 0"
-                  >
-                    {{ route.progress ?? 0 }}
-                  </progress>
-                  <small class="text-gray-500 dark:text-slate-400">
-                    {{
-                      t('deliveryRoutes.progressCount', {
-                        delivered: route.deliveredCount ?? 0,
-                        total: route.orderCount ?? 0,
-                      })
-                    }}
-                  </small>
+              </div>
+              <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                <div v-if="route.subcontractor">
+                  <span class="text-gray-500 dark:text-slate-400">{{ t('deliveryRoutes.subcontractor') }}:</span>
+                  {{ route.subcontractor }}
                 </div>
-              </td>
-              <td :data-label="t('deliveryRoutes.created')">
-                {{ formatDate(route.createdAt) }}
-              </td>
-              <td class="whitespace-nowrap before:hidden lg:w-1">
-                <BaseButtons type="justify-start lg:justify-end" no-wrap>
-                  <BaseButton
-                    color="info"
-                    :icon="mdiPencil"
-                    small
-                    @click="editRoute(route.id)"
-                  />
-                  <BaseButton
-                    color="danger"
-                    :icon="mdiTrashCan"
-                    small
-                    @click="askDelete(route)"
-                  />
-                </BaseButtons>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="border-t border-gray-100 p-3 lg:px-6 dark:border-slate-800">
-          <BaseLevel>
-            <small>{{ t('deliveryRoutes.count', { count: routes.length }) }}</small>
-          </BaseLevel>
+                <div>
+                  <span class="text-gray-500 dark:text-slate-400">{{ t('deliveryRoutes.courier') }}:</span>
+                  {{ route.courier?.name || t('deliveryRoutes.courierUnassigned') }}
+                </div>
+              </div>
+              <BaseButtons type="justify-start" no-wrap>
+                <BaseButton
+                  :icon="mdiMap"
+                  color="info"
+                  small
+                  outline
+                  :title="t('deliveryRoutes.openMaps')"
+                  :disabled="!route.mapsUrl"
+                  @click="openMaps(route)"
+                />
+                <BaseButton
+                  :icon="mdiPencil"
+                  color="info"
+                  small
+                  :title="t('deliveryRoutes.edit')"
+                  :disabled="!!route.startedAt"
+                  @click="openEdit(route)"
+                />
+                <BaseButton
+                  :icon="mdiTrashCan"
+                  color="danger"
+                  small
+                  :title="t('deliveryRoutes.delete')"
+                  @click="askDelete(route)"
+                />
+              </BaseButtons>
+            </div>
+          </CardBox>
         </div>
-      </CardBox>
+      </template>
+
+      <RouteAssignModal
+        v-model="assignOpen"
+        :mode="assignMode"
+        :route="assignRoute"
+        @saved="loadRoutes"
+      />
 
       <CardBoxModal
         v-model="isDeleteModalActive"

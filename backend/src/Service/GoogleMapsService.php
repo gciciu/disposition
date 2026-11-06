@@ -9,6 +9,7 @@ class GoogleMapsService
 {
     private const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
     private const DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
+    private const STATIC_MAP_URL = 'https://maps.googleapis.com/maps/api/staticmap';
     private const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
     private const PLACE_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 
@@ -256,7 +257,8 @@ class GoogleMapsService
      *     totalDurationText: string,
      *     totalDistanceMeters: int,
      *     totalDistanceText: string,
-     *     mapsUrl: string
+     *     mapsUrl: string,
+     *     overviewPolyline: string|null
      * }
      */
     public function buildTruckRoute(array $points): array
@@ -333,6 +335,11 @@ class GoogleMapsService
             ];
         }
 
+        $overviewPolyline = $data['routes'][0]['overview_polyline']['points'] ?? null;
+        if (!\is_string($overviewPolyline) || '' === $overviewPolyline) {
+            $overviewPolyline = null;
+        }
+
         return [
             'segments' => $segments,
             'totalDurationSeconds' => $totalDurationSeconds,
@@ -340,7 +347,384 @@ class GoogleMapsService
             'totalDistanceMeters' => $totalDistanceMeters,
             'totalDistanceText' => $this->formatDistance($totalDistanceMeters),
             'mapsUrl' => $this->buildGoogleMapsUrl($points),
+            'overviewPolyline' => $overviewPolyline,
         ];
+    }
+
+    /**
+     * Build a PNG data URI of the route overview (Google Static Maps).
+     *
+     * @param list<array{lat: float, lng: float, label?: string|null}> $points
+     * @param bool                                                     $firstIsOrigin When true, first point is warehouse/start (green "S")
+     */
+    public function buildRouteMapDataUri(array $points, bool $firstIsOrigin = false): ?string
+    {
+        if ([] === $points) {
+            return null;
+        }
+
+        $png = $this->fetchRouteMapPng($points, $firstIsOrigin);
+        if (null === $png) {
+            return null;
+        }
+
+        return 'data:image/png;base64,'.base64_encode($png);
+    }
+
+    /**
+     * @param list<array{lat: float, lng: float, label?: string|null}> $points
+     */
+    public function fetchRouteMapPng(array $points, bool $firstIsOrigin = false): ?string
+    {
+        if ([] === $points) {
+            return null;
+        }
+
+        $polyline = null;
+        if ($this->isConfigured() && \count($points) >= 2) {
+            try {
+                $polyline = $this->buildTruckRoute($points)['overviewPolyline'] ?? null;
+            } catch (\Throwable) {
+                $polyline = null;
+            }
+        }
+
+        if (!$this->isConfigured()) {
+            return null;
+        }
+
+        $lastError = null;
+        try {
+            return $this->requestStaticMapPng($points, $polyline, $firstIsOrigin);
+        } catch (\Throwable $e) {
+            $lastError = $e;
+        }
+
+        // Retry without encoded polyline (straight segments) when Directions path was used.
+        if (null !== $polyline) {
+            try {
+                return $this->requestStaticMapPng($points, null, $firstIsOrigin);
+            } catch (\Throwable $e) {
+                $lastError = $e;
+            }
+        }
+
+        // Surface key/API misconfiguration instead of a silent null (caller may fall back).
+        if ($lastError instanceof \Throwable) {
+            throw $lastError;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array{lat: float, lng: float, label?: string|null}> $points
+     */
+    private function requestStaticMapPng(array $points, ?string $encodedPolyline, bool $firstIsOrigin): string
+    {
+        $viewport = $this->computeStaticMapViewport($points);
+        $scale = 2;
+
+        $query = [
+            'size' => $viewport['width'].'x'.$viewport['height'],
+            'scale' => (string) $scale,
+            'center' => sprintf('%F,%F', $viewport['centerLat'], $viewport['centerLng']),
+            'zoom' => (string) $viewport['zoom'],
+            'maptype' => 'roadmap',
+            'format' => 'png',
+            'language' => 'de',
+            'region' => 'de',
+            'key' => $this->apiKey,
+        ];
+
+        if (null !== $encodedPolyline && '' !== $encodedPolyline) {
+            $query['path'] = 'weight:4|color:0x1a73e8ff|enc:'.$encodedPolyline;
+        } elseif (\count($points) >= 2) {
+            $coords = [];
+            foreach ($points as $point) {
+                $coords[] = sprintf('%F,%F', $point['lat'], $point['lng']);
+            }
+            $query['path'] = 'weight:4|color:0x1a73e8ff|'.implode('|', $coords);
+        }
+
+        // Unlabeled markers — Static Maps only allows a single-char label; we stamp
+        // full route-sheet numbers afterwards with GD.
+        $markerParams = $this->buildStaticMapMarkers($points, $firstIsOrigin);
+
+        $parts = [];
+        foreach ($query as $key => $value) {
+            $parts[] = rawurlencode((string) $key).'='.rawurlencode((string) $value);
+        }
+        foreach ($markerParams as $marker) {
+            $parts[] = 'markers='.rawurlencode($marker);
+        }
+
+        $url = self::STATIC_MAP_URL.'?'.implode('&', $parts);
+        if (\strlen($url) > 8190) {
+            $parts = [];
+            foreach ($query as $key => $value) {
+                $parts[] = rawurlencode((string) $key).'='.rawurlencode((string) $value);
+            }
+            foreach ($this->buildStaticMapMarkers($points, $firstIsOrigin, true) as $marker) {
+                $parts[] = 'markers='.rawurlencode($marker);
+            }
+            $url = self::STATIC_MAP_URL.'?'.implode('&', $parts);
+        }
+
+        $response = $this->httpClient->request('GET', $url, [
+            'timeout' => 30,
+        ]);
+
+        $statusCode = $response->getStatusCode();
+        $binary = $response->getContent(false);
+        $contentType = $response->getHeaders(false)['content-type'][0] ?? '';
+
+        if ($statusCode >= 400 || !str_starts_with($contentType, 'image/') || '' === $binary) {
+            $hint = trim(substr(strip_tags($binary), 0, 240));
+            throw new \RuntimeException(
+                'Google Static Maps request failed (HTTP '.$statusCode.')'
+                .('' !== $hint ? ': '.$hint : '')
+                .'. Enable “Maps Static API” for this key in Google Cloud Console.',
+            );
+        }
+
+        if (\strlen($binary) < 800) {
+            throw new \RuntimeException('Google Static Maps returned an empty/error image');
+        }
+
+        return $this->stampRouteLabelsOnMap(
+            $binary,
+            $points,
+            $firstIsOrigin,
+            $viewport['centerLat'],
+            $viewport['centerLng'],
+            $viewport['zoom'],
+            $viewport['width'],
+            $viewport['height'],
+            $scale,
+        );
+    }
+
+    /**
+     * @param list<array{lat: float, lng: float}> $points
+     *
+     * @return array{centerLat: float, centerLng: float, zoom: int, width: int, height: int}
+     */
+    private function computeStaticMapViewport(array $points): array
+    {
+        $lats = array_map(static fn (array $p): float => (float) $p['lat'], $points);
+        $lngs = array_map(static fn (array $p): float => (float) $p['lng'], $points);
+        $minLat = min($lats);
+        $maxLat = max($lats);
+        $minLng = min($lngs);
+        $maxLng = max($lngs);
+
+        $latPad = max(0.015, ($maxLat - $minLat) * 0.14);
+        $lngPad = max(0.015, ($maxLng - $minLng) * 0.14);
+        $minLat -= $latPad;
+        $maxLat += $latPad;
+        $minLng -= $lngPad;
+        $maxLng += $lngPad;
+
+        $centerLat = ($minLat + $maxLat) / 2;
+        $centerLng = ($minLng + $maxLng) / 2;
+
+        // Keep geographic aspect ratio (no horizontal stretch). Max edge 640 (Static Maps free limit).
+        $nw = $this->latLngToWorldPixel($maxLat, $minLng, 0);
+        $se = $this->latLngToWorldPixel($minLat, $maxLng, 0);
+        $aspect = max(0.55, min(1.8, ($se['x'] - $nw['x']) / max(1.0, $se['y'] - $nw['y'])));
+
+        if ($aspect >= 1.0) {
+            $width = 640;
+            $height = (int) max(360, min(640, round(640 / $aspect)));
+        } else {
+            $height = 640;
+            $width = (int) max(360, min(640, round(640 * $aspect)));
+        }
+
+        $zoom = 14;
+        for (; $zoom >= 5; --$zoom) {
+            if ($this->pointsFitViewport($points, $centerLat, $centerLng, $zoom, $width, $height, 24)) {
+                break;
+            }
+        }
+
+        return [
+            'centerLat' => $centerLat,
+            'centerLng' => $centerLng,
+            'zoom' => max(5, $zoom),
+            'width' => $width,
+            'height' => $height,
+        ];
+    }
+
+    /**
+     * @param list<array{lat: float, lng: float}> $points
+     */
+    private function pointsFitViewport(
+        array $points,
+        float $centerLat,
+        float $centerLng,
+        int $zoom,
+        int $width,
+        int $height,
+        int $paddingPx,
+    ): bool {
+        foreach ($points as $point) {
+            $px = $this->latLngToStaticMapPixel(
+                (float) $point['lat'],
+                (float) $point['lng'],
+                $centerLat,
+                $centerLng,
+                $zoom,
+                $width,
+                $height,
+                1,
+            );
+            if (
+                $px['x'] < $paddingPx
+                || $px['y'] < $paddingPx
+                || $px['x'] > $width - $paddingPx
+                || $px['y'] > $height - $paddingPx
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param list<array{lat: float, lng: float, label?: string|null}> $points
+     *
+     * @return list<string>
+     */
+    private function buildStaticMapMarkers(array $points, bool $firstIsOrigin, bool $startEndOnly = false): array
+    {
+        $markers = [];
+        $lastIndex = \count($points) - 1;
+
+        foreach ($points as $index => $point) {
+            $coord = sprintf('%F,%F', $point['lat'], $point['lng']);
+
+            if ($startEndOnly) {
+                if (0 === $index) {
+                    $markers[] = 'color:0x34a853|size:mid|'.$coord;
+                } elseif ($index === $lastIndex) {
+                    $markers[] = 'color:0xea4335|size:mid|'.$coord;
+                }
+                continue;
+            }
+
+            if ($firstIsOrigin && 0 === $index) {
+                $markers[] = 'color:0x34a853|size:mid|'.$coord;
+                continue;
+            }
+
+            $markers[] = 'color:0x4285f4|size:mid|'.$coord;
+        }
+
+        return $markers;
+    }
+
+    /**
+     * Draw full route-sheet position numbers on the Static Maps image.
+     *
+     * @param list<array{lat: float, lng: float, label?: string|null}> $points
+     */
+    private function stampRouteLabelsOnMap(
+        string $pngBinary,
+        array $points,
+        bool $firstIsOrigin,
+        float $centerLat,
+        float $centerLng,
+        int $zoom,
+        int $width,
+        int $height,
+        int $scale,
+    ): string {
+        if (!\function_exists('imagecreatefromstring')) {
+            return $pngBinary;
+        }
+
+        $image = @imagecreatefromstring($pngBinary);
+        if (false === $image) {
+            return $pngBinary;
+        }
+
+        imagesavealpha($image, true);
+        $white = imagecolorallocate($image, 255, 255, 255);
+        $shadow = imagecolorallocate($image, 20, 20, 20);
+
+        foreach ($points as $index => $point) {
+            $isOrigin = $firstIsOrigin && 0 === $index;
+            $label = $isOrigin
+                ? 'S'
+                : (string) ($point['label'] ?? ($firstIsOrigin ? (string) $index : (string) ($index + 1)));
+
+            $px = $this->latLngToStaticMapPixel(
+                (float) $point['lat'],
+                (float) $point['lng'],
+                $centerLat,
+                $centerLng,
+                $zoom,
+                $width,
+                $height,
+                $scale,
+            );
+
+            $font = \strlen($label) >= 2 ? 3 : 4;
+            $tw = imagefontwidth($font) * \strlen($label);
+            $th = imagefontheight($font);
+            $x = (int) round($px['x'] - $tw / 2);
+            $y = (int) round($px['y'] - $th / 2);
+            imagestring($image, $font, $x + 1, $y + 1, $label, $shadow);
+            imagestring($image, $font, $x, $y, $label, $white);
+        }
+
+        ob_start();
+        imagepng($image, null, 6);
+        $out = ob_get_clean();
+        imagedestroy($image);
+
+        return false === $out || '' === $out ? $pngBinary : $out;
+    }
+
+    /**
+     * @return array{x: float, y: float}
+     */
+    private function latLngToStaticMapPixel(
+        float $lat,
+        float $lng,
+        float $centerLat,
+        float $centerLng,
+        int $zoom,
+        int $width,
+        int $height,
+        int $scale,
+    ): array {
+        $point = $this->latLngToWorldPixel($lat, $lng, $zoom);
+        $center = $this->latLngToWorldPixel($centerLat, $centerLng, $zoom);
+
+        return [
+            'x' => ($point['x'] - $center['x']) * $scale + ($width * $scale) / 2,
+            'y' => ($point['y'] - $center['y']) * $scale + ($height * $scale) / 2,
+        ];
+    }
+
+    /**
+     * @return array{x: float, y: float}
+     */
+    private function latLngToWorldPixel(float $lat, float $lng, int $zoom): array
+    {
+        $lat = max(min($lat, 85.05112878), -85.05112878);
+        $n = 2 ** $zoom;
+        $tileSize = 256;
+        $x = ($lng + 180.0) / 360.0 * $n * $tileSize;
+        $latRad = deg2rad($lat);
+        $y = (1.0 - log(tan($latRad) + 1.0 / cos($latRad)) / M_PI) / 2.0 * $n * $tileSize;
+
+        return ['x' => $x, 'y' => $y];
     }
 
     /**

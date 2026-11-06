@@ -9,6 +9,17 @@
 parameters:
     env(GOOGLE_MAPS_API_KEY): ''
     env(MAIL_FROM): 'noreply@delivery.local'
+    env(COMPANY_NAME): 'MySpiegel-Lieferservice'
+    env(COMPANY_ADDRESS): 'Holländische Str. 207b, 34127 Kassel'
+    env(COMPANY_PHONE): '+49561 2207980'
+    env(COMPANY_EMAIL): 'info@myspiegel.de'
+    env(COMPANY_WEBSITE): 'www.myspiegel.de'
+    app.company:
+        name: '%env(COMPANY_NAME)%'
+        address: '%env(COMPANY_ADDRESS)%'
+        phone: '%env(COMPANY_PHONE)%'
+        email: '%env(COMPANY_EMAIL)%'
+        website: '%env(COMPANY_WEBSITE)%'
 
 services:
     # default configuration for services in *this* file
@@ -33,10 +44,22 @@ services:
         arguments:
             $projectDir: '%kernel.project_dir%'
 
+    App\Service\RouteFinishService:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    App\Command\BackfillRouteWeightsCommand:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
     App\Service\EmailService:
         arguments:
             $mailFrom: '%env(MAIL_FROM)%'
             $mailerDsn: '%env(MAILER_DSN)%'
+
+    App\Service\DeliveryConfirmationPdfBuilder:
+        arguments:
+            $companyDefaults: '%app.company%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

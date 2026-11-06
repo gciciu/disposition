@@ -25,6 +25,7 @@ const form = reactive({
   name: '',
   login: '',
   phone: '',
+  subcontractor: '',
   password: '',
 })
 
@@ -40,6 +41,7 @@ const loadCourier = async () => {
     form.name = ''
     form.login = ''
     form.phone = ''
+    form.subcontractor = ''
     form.password = ''
     return
   }
@@ -51,6 +53,7 @@ const loadCourier = async () => {
     form.name = courier.name ?? ''
     form.login = courier.login ?? ''
     form.phone = courier.phone ?? ''
+    form.subcontractor = courier.subcontractor ?? ''
     form.password = ''
   } catch (e) {
     toast.error(e.response?.data?.error || t('couriers.loadFailed'))
@@ -66,6 +69,7 @@ const submit = async () => {
     name: form.name.trim(),
     login: form.login.trim(),
     phone: form.phone.trim(),
+    subcontractor: form.subcontractor.trim(),
   }
 
   if (isNew.value || form.password) {
@@ -82,6 +86,7 @@ const submit = async () => {
       form.name = data.courier.name ?? ''
       form.login = data.courier.login ?? ''
       form.phone = data.courier.phone ?? ''
+      form.subcontractor = data.courier.subcontractor ?? ''
       form.password = ''
       toast.success(t('couriers.updated'))
     }
@@ -134,6 +139,13 @@ onMounted(loadCourier)
             type="tel"
             :placeholder="t('couriers.phonePlaceholder')"
             autocomplete="tel"
+          />
+        </FormField>
+
+        <FormField :label="t('couriers.subcontractor')" :help="t('couriers.subcontractorHelp')">
+          <FormControl
+            v-model="form.subcontractor"
+            :placeholder="t('couriers.subcontractorPlaceholder')"
           />
         </FormField>
 

@@ -176,6 +176,8 @@ export type RouteListItem = {
   id: number;
   name: string;
   createdAt: string;
+  scheduledDate: string | null;
+  scheduledStartTime: string | null;
   orderCount: number;
   totalDurationText: string | null;
   totalDistanceText: string | null;
@@ -184,6 +186,9 @@ export type RouteListItem = {
   originType: RouteOriginType;
   startedAt: string | null;
   completedAt: string | null;
+  hasCompletionPdf?: boolean;
+  allOrdersFinal?: boolean;
+  delayMinutes?: number;
 };
 
 export type OrderStatus = "pending" | "delivered" | "refused";
@@ -198,6 +203,7 @@ export type RouteOrder = {
   formattedAddress: string | null;
   addressValid: boolean;
   products: string[];
+  productBackgroundColors?: (string | null)[] | null;
   deliveredProductIndexes: number[] | null;
   travelDurationText: string | null;
   travelDistanceText: string | null;
@@ -223,6 +229,18 @@ export function startRouteRequest(id: number, coords?: { lat: number; lng: numbe
   return request<{ route: RouteDetail }>(`/api/driver/routes/${id}/start`, {
     method: "POST",
     body: JSON.stringify(coords ?? {}),
+  });
+}
+
+export function finishRouteRequest(id: number) {
+  return request<{ route: RouteDetail }>(`/api/driver/routes/${id}/finish`, {
+    method: "POST",
+  });
+}
+
+export function continueRouteRequest(id: number) {
+  return request<{ route: RouteDetail }>(`/api/driver/routes/${id}/continue`, {
+    method: "POST",
   });
 }
 
@@ -255,4 +273,11 @@ export function refuseOrderRequest(routeId: number, orderId: number) {
     `/api/driver/routes/${routeId}/orders/${orderId}/refuse`,
     { method: "POST" },
   );
+}
+
+export function reportDelayRequest(routeId: number, minutes: number) {
+  return request<{ route: RouteDetail }>(`/api/driver/routes/${routeId}/delay`, {
+    method: "POST",
+    body: JSON.stringify({ minutes }),
+  });
 }

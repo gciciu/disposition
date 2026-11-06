@@ -47,6 +47,16 @@ const routes = [
   },
   {
     meta: {
+      titleKey: 'routes.deliveryRouteOrderDetail',
+      requiresAuth: true,
+      requiresAdmin: true,
+    },
+    path: '/routes/:id/orders/:orderId',
+    name: 'route-order-detail',
+    component: () => import('@/views/RouteOrderDetailView.vue'),
+  },
+  {
+    meta: {
       titleKey: 'routes.couriers',
       requiresAuth: true,
       requiresAdmin: true,

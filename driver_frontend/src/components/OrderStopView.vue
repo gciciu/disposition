@@ -9,6 +9,7 @@ const props = defineProps<{
   order: RouteOrder;
   submitting: boolean;
   actionsEnabled: boolean;
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -62,6 +63,14 @@ watch(
 );
 
 const isChecked = (index: number) => selected.value.has(index);
+
+const productBackgroundStyle = (index: number) => {
+  const color = props.order.productBackgroundColors?.[index];
+  if (!color) {
+    return undefined;
+  }
+  return { backgroundColor: color };
+};
 
 const actionsLocked = computed(
   () => isClosed.value || props.submitting || !props.actionsEnabled,
@@ -167,6 +176,7 @@ const onCall = (event: Event) => {
               'product-check--missed': isClosed && !isChecked(idx),
               'product-check--disabled': actionsLocked,
             }"
+            :style="productBackgroundStyle(idx)"
           >
             <input
               class="product-check__input"
@@ -182,11 +192,14 @@ const onCall = (event: Event) => {
       </ul>
     </section>
 
-    <p v-if="!isClosed && !actionsEnabled" class="order-stop__hint">
+    <p v-if="!isClosed && readOnly" class="order-stop__hint">
+      {{ t("routes.completed") }}
+    </p>
+    <p v-else-if="!isClosed && !actionsEnabled" class="order-stop__hint">
       {{ t("routes.startRequired") }}
     </p>
 
-    <div v-if="!isClosed" class="order-stop__actions">
+    <div v-if="!isClosed && !readOnly" class="order-stop__actions">
       <button
         class="btn btn--primary"
         type="button"

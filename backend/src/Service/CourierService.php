@@ -31,7 +31,7 @@ class CourierService
     }
 
     /**
-     * @param array{name?: mixed, login?: mixed, phone?: mixed, password?: mixed} $data
+     * @param array{name?: mixed, login?: mixed, phone?: mixed, password?: mixed, subcontractor?: mixed} $data
      */
     public function create(array $data): Courier
     {
@@ -39,6 +39,7 @@ class CourierService
         $login = $this->normalizeLogin($this->requireNonEmptyString($data, 'login'));
         $password = $this->requireNonEmptyString($data, 'password');
         $phone = $this->normalizePhone($data['phone'] ?? null, required: false);
+        $subcontractor = $this->normalizeSubcontractor($data['subcontractor'] ?? null);
 
         $this->assertLoginAvailable($login);
 
@@ -53,7 +54,8 @@ class CourierService
 
         $courier = (new Courier())
             ->setUser($user)
-            ->setPhone($phone);
+            ->setPhone($phone)
+            ->setSubcontractor($subcontractor);
         $user->setCourier($courier);
 
         $this->em->persist($courier);
@@ -63,7 +65,7 @@ class CourierService
     }
 
     /**
-     * @param array{name?: mixed, login?: mixed, phone?: mixed, password?: mixed} $data
+     * @param array{name?: mixed, login?: mixed, phone?: mixed, password?: mixed, subcontractor?: mixed} $data
      */
     public function update(Courier $courier, array $data): Courier
     {
@@ -86,6 +88,10 @@ class CourierService
 
         if (\array_key_exists('phone', $data)) {
             $courier->setPhone($this->normalizePhone($data['phone'], required: false));
+        }
+
+        if (\array_key_exists('subcontractor', $data)) {
+            $courier->setSubcontractor($this->normalizeSubcontractor($data['subcontractor']));
         }
 
         if (\array_key_exists('password', $data)) {
@@ -159,6 +165,28 @@ class CourierService
         }
 
         return $login;
+    }
+
+    private function normalizeSubcontractor(mixed $value): ?string
+    {
+        if (null === $value) {
+            return null;
+        }
+
+        if (!\is_string($value)) {
+            throw new BadRequestHttpException('subcontractor must be a string');
+        }
+
+        $subcontractor = trim($value);
+        if ('' === $subcontractor) {
+            return null;
+        }
+
+        if (\strlen($subcontractor) > 255) {
+            throw new BadRequestHttpException('subcontractor is too long (max 255 characters)');
+        }
+
+        return $subcontractor;
     }
 
     private function normalizePhone(mixed $value, bool $required = false): ?string

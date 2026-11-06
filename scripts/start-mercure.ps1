@@ -7,7 +7,7 @@ $EnvFile = Join-Path $Dir ".env"
 $Example = Join-Path $Dir ".env.example"
 
 if (-not (Test-Path $Exe)) {
-    Write-Host "Mercure binary missing — downloading..."
+    Write-Host "Mercure binary missing - downloading..."
     & (Join-Path $PSScriptRoot "download-mercure.ps1")
 }
 

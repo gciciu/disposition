@@ -14,37 +14,102 @@ class DeliveryRouteMetricsService
     }
 
     /**
+     * Ordered map points for the route: optional origin + each stop with coordinates.
+     * Returns null when any stop is missing lat/lng.
+     *
+     * Origin (warehouse / courier GPS) is omitted when it is unrealistically far from
+     * the stops (e.g. a bogus device location on another continent) so the overview
+     * map and Directions stay usable.
+     *
+     * @return array{
+     *     points: list<array{formattedAddress: string, lat: float, lng: float, placeId: string|null, label?: string}>,
+     *     hasOrigin: bool
+     * }|null
+     */
+    public function collectMapPoints(DeliveryRoute $route): ?array
+    {
+        $orders = $route->getOrders()->toArray();
+        $stopPoints = [];
+
+        foreach ($orders as $order) {
+            $lat = $order->getLat();
+            $lng = $order->getLng();
+            if (null === $lat || null === $lng) {
+                return null;
+            }
+
+            $stopPoints[] = [
+                'formattedAddress' => $order->getFormattedAddress() ?? $order->getAddress(),
+                'lat' => $lat,
+                'lng' => $lng,
+                'placeId' => $order->getPlaceId(),
+                'label' => $this->googleMapsLabelForPosition($order->getPosition()),
+            ];
+        }
+
+        $originPoint = $this->resolveOriginPoint($route);
+        $hasOrigin = null !== $originPoint && $this->isOriginNearStops($originPoint, $stopPoints);
+
+        $points = $hasOrigin ? array_merge([$originPoint], $stopPoints) : $stopPoints;
+
+        return [
+            'points' => $points,
+            'hasOrigin' => $hasOrigin,
+        ];
+    }
+
+    /**
+     * @param array{lat: float, lng: float}                                                            $origin
+     * @param list<array{lat: float, lng: float}>                                                      $stops
+     */
+    private function isOriginNearStops(array $origin, array $stops): bool
+    {
+        if ([] === $stops) {
+            return true;
+        }
+
+        $nearestKm = null;
+        foreach ($stops as $stop) {
+            $km = $this->haversineKm(
+                (float) $origin['lat'],
+                (float) $origin['lng'],
+                (float) $stop['lat'],
+                (float) $stop['lng'],
+            );
+            $nearestKm = null === $nearestKm ? $km : min($nearestKm, $km);
+        }
+
+        // Drop GPS glitches / wrong-hemisphere starts (route stops are regional).
+        return null !== $nearestKm && $nearestKm <= 500.0;
+    }
+
+    private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthKm = 6371.0;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
+        return $earthKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    /**
      * Recalculate travel legs using the route origin (warehouse or courier start).
      * First order travel = origin → first stop when an origin point is available.
      */
     public function rebuild(DeliveryRoute $route): void
     {
         $orders = $route->getOrders()->toArray();
-        $points = [];
-        $originOffset = 0;
+        $collected = $this->collectMapPoints($route);
+        if (null === $collected) {
+            $this->clearMetrics($route);
 
-        $originPoint = $this->resolveOriginPoint($route);
-        if (null !== $originPoint) {
-            $points[] = $originPoint;
-            $originOffset = 1;
+            return;
         }
 
-        foreach ($orders as $order) {
-            $lat = $order->getLat();
-            $lng = $order->getLng();
-            if (null === $lat || null === $lng) {
-                $this->clearMetrics($route);
-
-                return;
-            }
-
-            $points[] = [
-                'formattedAddress' => $order->getFormattedAddress() ?? $order->getAddress(),
-                'lat' => $lat,
-                'lng' => $lng,
-                'placeId' => $order->getPlaceId(),
-            ];
-        }
+        $points = $collected['points'];
+        $originOffset = $collected['hasOrigin'] ? 1 : 0;
 
         if (\count($points) < 2) {
             if ($points) {
@@ -103,6 +168,12 @@ class DeliveryRouteMetricsService
         foreach ($route->getOrders() as $order) {
             $order->setTravelDurationSeconds(null)->setTravelDistanceMeters(null);
         }
+    }
+
+    /** Route-sheet position number drawn on the overview map. */
+    private function googleMapsLabelForPosition(int $position): string
+    {
+        return (string) max(1, $position);
     }
 
     /**

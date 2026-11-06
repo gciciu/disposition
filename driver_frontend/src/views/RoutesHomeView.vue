@@ -4,9 +4,12 @@ import { useI18n } from "vue-i18n";
 import {
   ApiError,
   completeOrderRequest,
+  continueRouteRequest,
   fetchMyRouteRequest,
   fetchMyRoutesRequest,
+  finishRouteRequest,
   refuseOrderRequest,
+  reportDelayRequest,
   startRouteRequest,
   type ProofType,
   type RouteDetail,
@@ -14,11 +17,12 @@ import {
   type RouteOrder,
 } from "../api";
 import { useAuth } from "../auth";
+import ConfirmActionSheet from "../components/ConfirmActionSheet.vue";
 import ConfirmDeliverySheet from "../components/ConfirmDeliverySheet.vue";
 import OrderStopView from "../components/OrderStopView.vue";
 import RefuseDeliverySheet from "../components/RefuseDeliverySheet.vue";
+import ReportDelaySheet from "../components/ReportDelaySheet.vue";
 import SignaturePadModal from "../components/SignaturePadModal.vue";
-import { dialPhone } from "../dialPhone";
 import { GeolocationError, getCurrentPosition } from "../geolocation";
 import { toProofJpeg } from "../imageProof";
 import { withoutCountry } from "../utils/address";
@@ -30,6 +34,8 @@ const loading = ref(true);
 const loadingDetail = ref(false);
 const submitting = ref(false);
 const starting = ref(false);
+const finishing = ref(false);
+const continuing = ref(false);
 const error = ref("");
 const routes = ref<RouteListItem[]>([]);
 const selectedId = ref<number | null>(null);
@@ -41,6 +47,10 @@ const confirmOrder = ref<RouteOrder | null>(null);
 const refuseOrder = ref<RouteOrder | null>(null);
 const pendingDeliveredIndexes = ref<number[]>([]);
 const showSignature = ref(false);
+const showStartConfirm = ref(false);
+const showFinishConfirm = ref(false);
+const showDelaySheet = ref(false);
+const continueRouteTarget = ref<RouteListItem | null>(null);
 const photoInput = ref<HTMLInputElement | null>(null);
 
 const hasRoutes = computed(() => routes.value.length > 0);
@@ -52,9 +62,44 @@ const selectedOrder = computed(() => {
   return detail.value.orders.find((item) => item.id === selectedOrderId.value) ?? null;
 });
 
-const formatDate = (value: string) => {
+const localTodayKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const isTodayScheduled = (scheduledDate: string | null | undefined) =>
+  Boolean(scheduledDate) && scheduledDate === localTodayKey();
+
+const canContinueRoute = (route: RouteListItem) =>
+  Boolean(route.completedAt) && isTodayScheduled(route.scheduledDate);
+
+const formatScheduledDate = (value: string) => {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return value;
+  }
   try {
-    return new Date(value).toLocaleString(locale.value);
+    return new Date(year, month - 1, day).toLocaleDateString(locale.value, {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return value;
+  }
+};
+
+const formatClockTime = (value: string) => {
+  try {
+    return new Date(value).toLocaleTimeString(locale.value, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
   } catch {
     return value;
   }
@@ -86,11 +131,39 @@ const closedOrders = computed(
 
 const isRouteStarted = computed(() => Boolean(detail.value?.startedAt));
 const isRouteCompleted = computed(() => Boolean(detail.value?.completedAt));
+const isSelectedRouteToday = computed(() =>
+  isTodayScheduled(detail.value?.scheduledDate),
+);
 const canStartRoute = computed(
-  () => Boolean(detail.value) && !isRouteStarted.value && !isRouteCompleted.value,
+  () =>
+    Boolean(detail.value) &&
+    isSelectedRouteToday.value &&
+    !isRouteStarted.value &&
+    !isRouteCompleted.value,
 );
 const deliveryActionsEnabled = computed(
-  () => isRouteStarted.value && !isRouteCompleted.value,
+  () =>
+    isSelectedRouteToday.value &&
+    isRouteStarted.value &&
+    !isRouteCompleted.value,
+);
+const allOrdersFinal = computed(() => {
+  if (!detail.value) {
+    return false;
+  }
+  if (typeof detail.value.allOrdersFinal === "boolean") {
+    return detail.value.allOrdersFinal;
+  }
+  return (
+    detail.value.orders.length > 0 &&
+    detail.value.orders.every((order) => isClosed(order))
+  );
+});
+const canFinishRoute = computed(
+  () =>
+    isSelectedRouteToday.value &&
+    isRouteStarted.value &&
+    !isRouteCompleted.value,
 );
 
 const syncRouteListItem = (route: RouteDetail) => {
@@ -103,8 +176,12 @@ const syncRouteListItem = (route: RouteDetail) => {
           totalDistanceText: route.totalDistanceText,
           mapsUrl: route.mapsUrl,
           originType: route.originType,
+          scheduledStartTime: route.scheduledStartTime,
           startedAt: route.startedAt,
           completedAt: route.completedAt,
+          hasCompletionPdf: route.hasCompletionPdf,
+          allOrdersFinal: route.allOrdersFinal,
+          delayMinutes: route.delayMinutes,
         }
       : item,
   );
@@ -120,7 +197,7 @@ const loadRoutes = async () => {
   try {
     const data = await fetchMyRoutesRequest();
     routes.value = data.routes ?? [];
-    if (routes.value.length === 1) {
+    if (routes.value.length === 1 && !routes.value[0].completedAt) {
       await openRoute(routes.value[0].id);
     }
   } catch (e) {
@@ -142,6 +219,7 @@ const openRoute = async (id: number) => {
   try {
     const data = await fetchMyRouteRequest(id);
     detail.value = data.route;
+    showClosed.value = Boolean(data.route.completedAt);
   } catch (e) {
     error.value =
       e instanceof ApiError ? e.message : t("routes.loadDetailFailed");
@@ -164,12 +242,6 @@ const openOrder = (order: RouteOrder) => {
   selectedOrderId.value = order.id;
 };
 
-const onCall = (event: Event, phone: string) => {
-  event.preventDefault();
-  event.stopPropagation();
-  void dialPhone(phone);
-};
-
 const backToStops = () => {
   if (submitting.value) {
     return;
@@ -177,6 +249,23 @@ const backToStops = () => {
   selectedOrderId.value = null;
   closeConfirm();
   closeRefuse();
+  closeDelaySheet();
+};
+
+const openStartConfirm = () => {
+  if (!canStartRoute.value || starting.value || submitting.value || finishing.value) {
+    return;
+  }
+  error.value = "";
+  showFinishConfirm.value = false;
+  showStartConfirm.value = true;
+};
+
+const closeStartConfirm = () => {
+  if (starting.value) {
+    return;
+  }
+  showStartConfirm.value = false;
 };
 
 const startRoute = async () => {
@@ -197,6 +286,7 @@ const startRoute = async () => {
     const data = await startRouteRequest(routeId, coords);
     detail.value = data.route;
     syncRouteListItem(data.route);
+    showStartConfirm.value = false;
   } catch (e) {
     if (e instanceof GeolocationError) {
       error.value =
@@ -207,8 +297,110 @@ const startRoute = async () => {
       error.value =
         e instanceof ApiError ? e.message : t("routes.startFailed");
     }
+    showStartConfirm.value = false;
   } finally {
     starting.value = false;
+  }
+};
+
+const openFinishConfirm = () => {
+  if (
+    !canFinishRoute.value ||
+    finishing.value ||
+    starting.value ||
+    submitting.value
+  ) {
+    return;
+  }
+  error.value = "";
+  showStartConfirm.value = false;
+  showFinishConfirm.value = true;
+};
+
+const closeFinishConfirm = () => {
+  if (finishing.value) {
+    return;
+  }
+  showFinishConfirm.value = false;
+};
+
+const openContinueConfirm = (route: RouteListItem, event?: Event) => {
+  event?.preventDefault();
+  event?.stopPropagation();
+  if (!canContinueRoute(route) || continuing.value || starting.value || finishing.value) {
+    return;
+  }
+  error.value = "";
+  showStartConfirm.value = false;
+  showFinishConfirm.value = false;
+  continueRouteTarget.value = route;
+};
+
+const closeContinueConfirm = () => {
+  if (continuing.value) {
+    return;
+  }
+  continueRouteTarget.value = null;
+};
+
+const continueRoute = async () => {
+  const route = continueRouteTarget.value;
+  if (
+    !route ||
+    !canContinueRoute(route) ||
+    continuing.value ||
+    starting.value ||
+    finishing.value ||
+    submitting.value
+  ) {
+    return;
+  }
+
+  continuing.value = true;
+  error.value = "";
+
+  try {
+    const data = await continueRouteRequest(route.id);
+    syncRouteListItem(data.route);
+    continueRouteTarget.value = null;
+    await openRoute(data.route.id);
+  } catch (e) {
+    error.value =
+      e instanceof ApiError ? e.message : t("routes.continueFailed");
+    continueRouteTarget.value = null;
+  } finally {
+    continuing.value = false;
+  }
+};
+
+const finishRoute = async () => {
+  const routeId = selectedId.value;
+  if (
+    routeId === null ||
+    !canFinishRoute.value ||
+    finishing.value ||
+    starting.value ||
+    submitting.value
+  ) {
+    return;
+  }
+
+  finishing.value = true;
+  error.value = "";
+
+  try {
+    const data = await finishRouteRequest(routeId);
+    detail.value = data.route;
+    syncRouteListItem(data.route);
+    selectedOrderId.value = null;
+    showClosed.value = true;
+    showFinishConfirm.value = false;
+  } catch (e) {
+    error.value =
+      e instanceof ApiError ? e.message : t("routes.finishFailed");
+    showFinishConfirm.value = false;
+  } finally {
+    finishing.value = false;
   }
 };
 
@@ -256,6 +448,53 @@ const closeRefuse = () => {
   refuseOrder.value = null;
 };
 
+const openDelaySheet = () => {
+  if (!deliveryActionsEnabled.value || submitting.value || starting.value || finishing.value) {
+    return;
+  }
+  error.value = "";
+  confirmOrder.value = null;
+  refuseOrder.value = null;
+  showSignature.value = false;
+  showDelaySheet.value = true;
+};
+
+const closeDelaySheet = () => {
+  if (submitting.value) {
+    return;
+  }
+  showDelaySheet.value = false;
+};
+
+const submitDelay = async (minutes: number) => {
+  const routeId = selectedId.value;
+  if (
+    routeId === null ||
+    !deliveryActionsEnabled.value ||
+    submitting.value ||
+    starting.value ||
+    finishing.value
+  ) {
+    return;
+  }
+
+  submitting.value = true;
+  error.value = "";
+
+  try {
+    const data = await reportDelayRequest(routeId, minutes);
+    detail.value = data.route;
+    syncRouteListItem(data.route);
+    showDelaySheet.value = false;
+  } catch (e) {
+    error.value =
+      e instanceof ApiError ? e.message : t("delivery.delayFailed");
+    showDelaySheet.value = false;
+  } finally {
+    submitting.value = false;
+  }
+};
+
 const onProofChoice = (type: ProofType) => {
   if (!confirmOrder.value) {
     return;
@@ -270,6 +509,10 @@ const onProofChoice = (type: ProofType) => {
 const applyRouteMutation = (_order: RouteOrder, route: RouteDetail) => {
   detail.value = route;
   syncRouteListItem(route);
+  if (route.completedAt) {
+    selectedOrderId.value = null;
+    showClosed.value = true;
+  }
 };
 
 const submitProof = async (
@@ -393,25 +636,56 @@ watch(
 
     <template v-else-if="selectedId === null">
       <div class="route-list">
-        <button
+        <div
           v-for="route in routes"
           :key="route.id"
           class="route-card"
-          type="button"
+          :class="{ 'route-card--today': isTodayScheduled(route.scheduledDate) }"
+          role="button"
+          tabindex="0"
           @click="openRoute(route.id)"
+          @keydown.enter.prevent="openRoute(route.id)"
         >
+          <div v-if="route.scheduledDate" class="route-card__date">
+            <span>{{ formatScheduledDate(route.scheduledDate) }}</span>
+            <span
+              v-if="isTodayScheduled(route.scheduledDate)"
+              class="route-card__today-badge"
+            >
+              {{ t("routes.today") }}
+            </span>
+          </div>
           <div class="route-card__title">{{ route.name }}</div>
           <div class="route-card__meta">
             <span>{{ t("routes.ordersCount", { count: route.orderCount }) }}</span>
+            <span v-if="route.scheduledStartTime">
+              {{ t("routes.scheduledStartTime", { time: route.scheduledStartTime }) }}
+            </span>
+            <span v-if="route.startedAt">
+              {{ t("routes.startedAt", { time: formatClockTime(route.startedAt) }) }}
+            </span>
             <span v-if="route.totalDurationText">
               {{ route.totalDurationText }}
               <template v-if="route.totalDistanceText">
                 · {{ route.totalDistanceText }}
               </template>
             </span>
-            <span>{{ formatDate(route.createdAt) }}</span>
+            <span v-if="route.completedAt" class="route-card__status">
+              {{ t("routes.completed") }}
+            </span>
           </div>
-        </button>
+          <button
+            v-if="canContinueRoute(route)"
+            class="btn btn--primary btn--compact route-card__continue"
+            type="button"
+            :disabled="continuing || starting || finishing || submitting"
+            @click="openContinueConfirm(route, $event)"
+          >
+            {{ continuing && continueRouteTarget?.id === route.id
+              ? t("routes.continuing")
+              : t("routes.continue") }}
+          </button>
+        </div>
       </div>
     </template>
 
@@ -423,6 +697,7 @@ watch(
         :order="selectedOrder"
         :submitting="submitting"
         :actions-enabled="deliveryActionsEnabled"
+        :read-only="isRouteCompleted"
         @back="backToStops"
         @confirm="onOrderConfirm"
         @refuse="openRefuse"
@@ -442,13 +717,13 @@ watch(
             v-if="canStartRoute"
             class="btn btn--primary btn--compact"
             type="button"
-            :disabled="starting || submitting"
-            @click="startRoute"
+            :disabled="starting || submitting || finishing"
+            @click="openStartConfirm"
           >
             {{ starting ? t("routes.starting") : t("routes.start") }}
           </button>
           <a
-            v-if="detail.mapsUrl && isRouteStarted"
+            v-if="detail.mapsUrl && isRouteStarted && !isRouteCompleted"
             class="btn btn--primary btn--compact"
             :href="detail.mapsUrl"
             target="_blank"
@@ -456,17 +731,47 @@ watch(
           >
             {{ t("routes.openMaps") }}
           </a>
+          <button
+            v-if="deliveryActionsEnabled"
+            class="btn btn--secondary btn--compact"
+            type="button"
+            :disabled="submitting || starting || finishing"
+            @click="openDelaySheet"
+          >
+            {{ t("delivery.reportDelay") }}
+          </button>
+          <button
+            v-if="canFinishRoute"
+            class="btn btn--primary btn--compact"
+            type="button"
+            :disabled="finishing || starting || submitting"
+            @click="openFinishConfirm"
+          >
+            {{ finishing ? t("routes.finishing") : t("routes.finish") }}
+          </button>
         </div>
 
         <p v-if="isRouteCompleted" class="route-status route-status--done">
           {{ t("routes.completed") }}
         </p>
+        <p v-else-if="!isSelectedRouteToday" class="route-status">
+          {{ t("routes.todayOnlyHint") }}
+        </p>
         <p v-else-if="!isRouteStarted" class="route-status">
           {{ t("routes.startHint") }}
+        </p>
+        <p v-else-if="allOrdersFinal" class="route-status route-status--done">
+          {{ t("routes.finishHint") }}
         </p>
 
         <div class="route-summary">
           <span>{{ t("routes.ordersCount", { count: detail.orderCount }) }}</span>
+          <span v-if="detail.scheduledStartTime">
+            {{ t("routes.scheduledStartTime", { time: detail.scheduledStartTime }) }}
+          </span>
+          <span v-if="detail.startedAt">
+            {{ t("routes.startedAt", { time: formatClockTime(detail.startedAt) }) }}
+          </span>
           <span v-if="detail.totalDurationText">
             {{ detail.totalDurationText }}
             <template v-if="detail.totalDistanceText">
@@ -509,14 +814,9 @@ watch(
                     {{ closedStatusLabel(order) }}
                   </span>
                 </div>
-                <a
-                  v-if="order.phone"
-                  class="stop-card__phone"
-                  :href="`tel:${order.phone}`"
-                  @click="onCall($event, order.phone)"
-                >
+                <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
                   {{ order.phone }}
-                </a>
+                </div>
                 <div class="stop-card__address">{{ displayAddress(order) }}</div>
                 <div
                   v-if="order.travelDurationText || order.travelDistanceText"
@@ -560,14 +860,9 @@ watch(
               <div class="stop-card__heading">
                 <div class="stop-card__name">{{ order.clientName }}</div>
               </div>
-              <a
-                v-if="order.phone"
-                class="stop-card__phone"
-                :href="`tel:${order.phone}`"
-                @click="onCall($event, order.phone)"
-              >
+              <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
                 {{ order.phone }}
-              </a>
+              </div>
               <div class="stop-card__address">{{ displayAddress(order) }}</div>
               <div
                 v-if="order.travelDurationText || order.travelDistanceText"
@@ -610,8 +905,64 @@ watch(
       @cancel="closeRefuse"
     />
 
-    <div v-if="submitting || starting" class="submit-overlay" aria-live="polite">
-      {{ starting ? t("routes.starting") : t("delivery.submitting") }}
+    <ReportDelaySheet
+      v-if="showDelaySheet"
+      :submitting="submitting"
+      @confirm="submitDelay"
+      @cancel="closeDelaySheet"
+    />
+
+    <ConfirmActionSheet
+      v-if="showStartConfirm"
+      :title="t('routes.startConfirmTitle')"
+      :subtitle="t('routes.startConfirmSubtitle')"
+      :confirm-label="t('routes.startConfirm')"
+      :submitting="starting"
+      :submitting-label="t('routes.starting')"
+      @confirm="startRoute"
+      @cancel="closeStartConfirm"
+    />
+
+    <ConfirmActionSheet
+      v-if="showFinishConfirm"
+      :title="t('routes.finishConfirmTitle')"
+      :subtitle="
+        allOrdersFinal
+          ? t('routes.finishConfirmSubtitle')
+          : t('routes.finishConfirmPending')
+      "
+      :confirm-label="t('routes.finishConfirm')"
+      :submitting="finishing"
+      :submitting-label="t('routes.finishing')"
+      @confirm="finishRoute"
+      @cancel="closeFinishConfirm"
+    />
+
+    <ConfirmActionSheet
+      v-if="continueRouteTarget"
+      :title="t('routes.continueConfirmTitle')"
+      :subtitle="t('routes.continueConfirmSubtitle')"
+      :confirm-label="t('routes.continueConfirm')"
+      :submitting="continuing"
+      :submitting-label="t('routes.continuing')"
+      @confirm="continueRoute"
+      @cancel="closeContinueConfirm"
+    />
+
+    <div
+      v-if="submitting || starting || finishing || continuing"
+      class="submit-overlay"
+      aria-live="polite"
+    >
+      {{
+        continuing
+          ? t("routes.continuing")
+          : finishing
+            ? t("routes.finishing")
+            : starting
+              ? t("routes.starting")
+              : t("delivery.submitting")
+      }}
     </div>
   </div>
 </template>

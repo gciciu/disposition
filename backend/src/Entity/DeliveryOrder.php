@@ -12,6 +12,17 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'delivery_order')]
 class DeliveryOrder
 {
+    public const UNLOADING_DURATION_MIN = 1;
+
+    public const UNLOADING_DURATION_MAX = 60;
+
+    public const UNLOADING_DURATION_DEFAULT = 10;
+
+    /** @var list<string> */
+    public const COMMENT_COLORS = ['amber', 'red', 'green', 'blue', 'orange', 'gray'];
+
+    public const COMMENT_COLOR_DEFAULT = 'amber';
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
@@ -29,6 +40,9 @@ class DeliveryOrder
 
     #[ORM\Column(length: 64, nullable: true)]
     private ?string $phone = null;
+
+    #[ORM\Column(length: 180, nullable: true)]
+    private ?string $email = null;
 
     #[ORM\Column(length: 512)]
     private string $address = '';
@@ -56,6 +70,22 @@ class DeliveryOrder
     #[ORM\Column(nullable: true)]
     private ?int $travelDistanceMeters = null;
 
+    /** Stop cargo weight in kg from the import PDF, if present. */
+    #[ORM\Column(type: 'float', nullable: true)]
+    private ?float $weightKg = null;
+
+    /** Planned unloading / service time at this stop (minutes). */
+    #[ORM\Column(options: ['default' => 10])]
+    private int $unloadingDurationMinutes = self::UNLOADING_DURATION_DEFAULT;
+
+    /**
+     * Colored remark list, e.g. [{"id":"…","text":"Tel. Avis. 1 Tag vorher","color":"amber"}].
+     *
+     * @var list<array{id: string, text: string, color: string}>
+     */
+    #[ORM\Column(type: 'json')]
+    private array $comments = [];
+
     /**
      * Product lines, e.g. ["1 x HZ BS Weiß / 19 mm, 120 x 60 cm / Weiß"].
      *
@@ -63,6 +93,14 @@ class DeliveryOrder
      */
     #[ORM\Column(type: 'json')]
     private array $products = [];
+
+    /**
+     * Background colors from the PDF article cell, parallel to $products (e.g. "#99CCFF").
+     *
+     * @var list<string|null>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $productBackgroundColors = null;
 
     /**
      * Indexes into $products that were delivered. Null until the stop is completed.
@@ -145,6 +183,19 @@ class DeliveryOrder
     {
         $phone = null !== $phone ? trim($phone) : null;
         $this->phone = '' === $phone ? null : $phone;
+
+        return $this;
+    }
+
+    public function getEmail(): ?string
+    {
+        return $this->email;
+    }
+
+    public function setEmail(?string $email): static
+    {
+        $email = null !== $email ? trim($email) : null;
+        $this->email = '' === $email ? null : $email;
 
         return $this;
     }
@@ -247,6 +298,113 @@ class DeliveryOrder
         return $this;
     }
 
+    public function getWeightKg(): ?float
+    {
+        return $this->weightKg;
+    }
+
+    public function setWeightKg(?float $weightKg): static
+    {
+        $this->weightKg = $weightKg;
+
+        return $this;
+    }
+
+    public function getUnloadingDurationMinutes(): int
+    {
+        return $this->unloadingDurationMinutes;
+    }
+
+    public function setUnloadingDurationMinutes(int $unloadingDurationMinutes): static
+    {
+        if (
+            $unloadingDurationMinutes < self::UNLOADING_DURATION_MIN
+            || $unloadingDurationMinutes > self::UNLOADING_DURATION_MAX
+        ) {
+            throw new \InvalidArgumentException(sprintf(
+                'unloadingDurationMinutes must be between %d and %d',
+                self::UNLOADING_DURATION_MIN,
+                self::UNLOADING_DURATION_MAX,
+            ));
+        }
+
+        $this->unloadingDurationMinutes = $unloadingDurationMinutes;
+
+        return $this;
+    }
+
+    /**
+     * @return list<array{id: string, text: string, color: string}>
+     */
+    public function getComments(): array
+    {
+        return $this->comments;
+    }
+
+    /**
+     * @param list<array{id?: mixed, text?: mixed, color?: mixed}> $comments
+     */
+    public function setComments(array $comments): static
+    {
+        $normalized = [];
+        foreach ($comments as $comment) {
+            if (!\is_array($comment)) {
+                continue;
+            }
+            $text = isset($comment['text']) && \is_string($comment['text'])
+                ? trim($comment['text'])
+                : '';
+            if ('' === $text) {
+                continue;
+            }
+
+            $id = isset($comment['id']) && \is_string($comment['id'])
+                ? trim($comment['id'])
+                : '';
+            if ('' === $id) {
+                $id = self::newCommentId();
+            }
+
+            $color = isset($comment['color']) && \is_string($comment['color'])
+                ? trim($comment['color'])
+                : self::COMMENT_COLOR_DEFAULT;
+            if (!\in_array($color, self::COMMENT_COLORS, true)) {
+                $color = self::COMMENT_COLOR_DEFAULT;
+            }
+
+            $normalized[] = [
+                'id' => $id,
+                'text' => $text,
+                'color' => $color,
+            ];
+        }
+        $this->comments = $normalized;
+
+        return $this;
+    }
+
+    public function getCommentsText(): ?string
+    {
+        $parts = [];
+        foreach ($this->comments as $comment) {
+            $text = trim((string) ($comment['text'] ?? ''));
+            if ('' !== $text) {
+                $parts[] = $text;
+            }
+        }
+
+        if ([] === $parts) {
+            return null;
+        }
+
+        return implode(' ', $parts);
+    }
+
+    public static function newCommentId(): string
+    {
+        return bin2hex(random_bytes(16));
+    }
+
     /**
      * @return list<string>
      */
@@ -271,6 +429,48 @@ class DeliveryOrder
             }
         }
         $this->products = $normalized;
+
+        return $this;
+    }
+
+    /**
+     * @return list<string|null>|null
+     */
+    public function getProductBackgroundColors(): ?array
+    {
+        return $this->productBackgroundColors;
+    }
+
+    /**
+     * @param list<string|null>|null $productBackgroundColors
+     */
+    public function setProductBackgroundColors(?array $productBackgroundColors): static
+    {
+        if (null === $productBackgroundColors) {
+            $this->productBackgroundColors = null;
+
+            return $this;
+        }
+
+        $normalized = [];
+        foreach ($productBackgroundColors as $color) {
+            if (null === $color) {
+                $normalized[] = null;
+                continue;
+            }
+            if (!\is_string($color)) {
+                $normalized[] = null;
+                continue;
+            }
+            $value = strtoupper(trim($color));
+            if (1 !== preg_match('/^#[0-9A-F]{6}$/', $value)) {
+                $normalized[] = null;
+                continue;
+            }
+            $normalized[] = $value;
+        }
+
+        $this->productBackgroundColors = $normalized;
 
         return $this;
     }
@@ -387,6 +587,7 @@ class DeliveryOrder
      *     position: int,
      *     clientName: string,
      *     phone: string|null,
+     *     email: string|null,
      *     address: string,
      *     addressValid: bool,
      *     formattedAddress: string|null,
@@ -397,7 +598,12 @@ class DeliveryOrder
      *     travelDistanceMeters: int|null,
      *     travelDurationText: string|null,
      *     travelDistanceText: string|null,
+     *     weightKg: float|null,
+     *     unloadingDurationMinutes: int,
+     *     arrivalTime: string|null,
+     *     comments: list<array{id: string, text: string, color: string}>,
      *     products: list<string>,
+     *     productBackgroundColors: list<string|null>|null,
      *     deliveredProductIndexes: list<int>|null,
      *     status: string,
      *     completedAt: string|null,
@@ -406,13 +612,14 @@ class DeliveryOrder
      *     createdAt: string
      * }
      */
-    public function toArray(): array
+    public function toArray(?string $arrivalTime = null): array
     {
         return [
             'id' => $this->id,
             'position' => $this->position,
             'clientName' => $this->clientName,
             'phone' => $this->phone,
+            'email' => $this->email,
             'address' => AddressFormatter::withoutCountry($this->address) ?? $this->address,
             'addressValid' => $this->addressValid,
             'formattedAddress' => AddressFormatter::withoutCountry($this->formattedAddress),
@@ -427,7 +634,12 @@ class DeliveryOrder
             'travelDistanceText' => null !== $this->travelDistanceMeters
                 ? self::formatDistance($this->travelDistanceMeters)
                 : null,
+            'weightKg' => $this->weightKg,
+            'unloadingDurationMinutes' => $this->unloadingDurationMinutes,
+            'arrivalTime' => $arrivalTime,
+            'comments' => $this->comments,
             'products' => $this->products,
+            'productBackgroundColors' => $this->productBackgroundColors,
             'deliveredProductIndexes' => $this->deliveredProductIndexes,
             'status' => $this->status->value,
             'completedAt' => $this->completedAt?->format(\DateTimeInterface::ATOM),

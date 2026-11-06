@@ -29,20 +29,30 @@ class DeliveryRouteRepository extends ServiceEntityRepository
             ->addSelect('u')
             ->leftJoin('r.warehouse', 'w')
             ->addSelect('w')
+            ->leftJoin('r.orders', 'o')
+            ->addSelect('o')
             ->orderBy('r.createdAt', 'DESC')
             ->getQuery()
             ->getResult();
     }
 
     /**
+     * Courier-facing list: today and future scheduled routes only.
+     *
      * @return list<DeliveryRoute>
      */
-    public function findAssignedToCourierNewestFirst(Courier $courier): array
+    public function findAssignedToCourierFromToday(Courier $courier): array
     {
+        $today = new \DateTimeImmutable('today');
+
         return $this->createQueryBuilder('r')
             ->andWhere('r.courier = :courier')
+            ->andWhere('r.scheduledDate IS NOT NULL')
+            ->andWhere('r.scheduledDate >= :today')
             ->setParameter('courier', $courier)
-            ->orderBy('r.createdAt', 'DESC')
+            ->setParameter('today', $today)
+            ->orderBy('r.scheduledDate', 'ASC')
+            ->addOrderBy('r.createdAt', 'DESC')
             ->getQuery()
             ->getResult();
     }
@@ -56,5 +66,52 @@ class DeliveryRouteRepository extends ServiceEntityRepository
             ->setParameter('courier', $courier)
             ->getQuery()
             ->getOneOrNullResult();
+    }
+
+    public function findOneByCourierAndScheduledDate(
+        Courier $courier,
+        \DateTimeImmutable $scheduledDate,
+        ?int $excludeRouteId = null,
+    ): ?DeliveryRoute {
+        $qb = $this->createQueryBuilder('r')
+            ->andWhere('r.courier = :courier')
+            ->andWhere('r.scheduledDate = :scheduledDate')
+            ->setParameter('courier', $courier)
+            ->setParameter('scheduledDate', $scheduledDate)
+            ->setMaxResults(1);
+
+        if (null !== $excludeRouteId) {
+            $qb->andWhere('r.id != :excludeId')
+                ->setParameter('excludeId', $excludeRouteId);
+        }
+
+        return $qb->getQuery()->getOneOrNullResult();
+    }
+
+    /**
+     * @return list<DeliveryRoute>
+     */
+    public function findByCourierAndDateRange(
+        Courier $courier,
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to,
+        ?int $excludeRouteId = null,
+    ): array {
+        $qb = $this->createQueryBuilder('r')
+            ->andWhere('r.courier = :courier')
+            ->andWhere('r.scheduledDate IS NOT NULL')
+            ->andWhere('r.scheduledDate >= :from')
+            ->andWhere('r.scheduledDate <= :to')
+            ->setParameter('courier', $courier)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->orderBy('r.scheduledDate', 'ASC');
+
+        if (null !== $excludeRouteId) {
+            $qb->andWhere('r.id != :excludeId')
+                ->setParameter('excludeId', $excludeRouteId);
+        }
+
+        return $qb->getQuery()->getResult();
     }
 }

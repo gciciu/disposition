@@ -23,6 +23,9 @@ class Courier
     #[ORM\Column(length: 32, nullable: true)]
     private ?string $phone = null;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $subcontractor = null;
+
     /** @var Collection<int, DeliveryRoute> */
     #[ORM\OneToMany(targetEntity: DeliveryRoute::class, mappedBy: 'courier')]
     private Collection $routes;
@@ -61,6 +64,18 @@ class Courier
         return $this;
     }
 
+    public function getSubcontractor(): ?string
+    {
+        return $this->subcontractor;
+    }
+
+    public function setSubcontractor(?string $subcontractor): static
+    {
+        $this->subcontractor = $subcontractor;
+
+        return $this;
+    }
+
     /**
      * @return Collection<int, DeliveryRoute>
      */
@@ -80,6 +95,7 @@ class Courier
      *     name: string,
      *     login: string,
      *     phone: string|null,
+     *     subcontractor: string|null,
      *     isActive: bool,
      *     canDelete: bool
      * }
@@ -93,6 +109,7 @@ class Courier
             'name' => $user?->getName() ?? '',
             'login' => $user?->getEmail() ?? '',
             'phone' => $this->phone,
+            'subcontractor' => $this->subcontractor,
             'isActive' => $user?->isActive() ?? false,
             'canDelete' => $this->canDelete(),
         ];

@@ -7,7 +7,9 @@ use App\Entity\DeliveryRoute;
 use App\Enum\RouteOriginType;
 use App\Exception\RouteAddressValidationException;
 use App\Repository\WarehouseRepository;
+use Smalot\PdfParser\Page;
 use Smalot\PdfParser\Parser;
+use Smalot\PdfParser\PDFObject;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 class RoutePdfImportService
@@ -31,6 +33,8 @@ class RoutePdfImportService
         if ([] === $parsed['orders']) {
             throw new \InvalidArgumentException('No orders found in the first table of the PDF');
         }
+
+        $parsed['orders'] = $this->assignProductBackgroundColors($file, $parsed['orders']);
 
         $geocodedOrders = [];
         $invalidAddresses = [];
@@ -63,7 +67,8 @@ class RoutePdfImportService
         $defaultWarehouse = $this->warehouses->findDefault();
         $route = (new DeliveryRoute())
             ->setName($parsed['routeName'])
-            ->setSourceFilename($file->getClientOriginalName());
+            ->setSourceFilename($file->getClientOriginalName())
+            ->setTotalWeightKg($parsed['totalWeightKg']);
 
         if (null !== $defaultWarehouse) {
             $route->setWarehouse($defaultWarehouse);
@@ -71,20 +76,47 @@ class RoutePdfImportService
             $route->setOriginType(RouteOriginType::CourierLocation);
         }
 
+        $ordersWeightSum = 0.0;
+        $ordersHaveWeight = false;
+
         foreach (array_values($geocodedOrders) as $index => $orderData) {
+            $orderWeight = isset($orderData['weightKg']) && is_numeric($orderData['weightKg'])
+                ? (float) $orderData['weightKg']
+                : null;
+            if (null !== $orderWeight) {
+                $ordersWeightSum += $orderWeight;
+                $ordersHaveWeight = true;
+            }
+
             $order = (new DeliveryOrder())
                 ->setPosition($index + 1)
                 ->setClientName($orderData['clientName'])
                 ->setPhone($orderData['phone'])
+                ->setEmail($orderData['email'] ?? null)
                 ->setAddress($orderData['address'])
                 ->setAddressValid(true)
                 ->setFormattedAddress($orderData['formattedAddress'])
                 ->setLat($orderData['lat'])
                 ->setLng($orderData['lng'])
                 ->setPlaceId($orderData['placeId'])
-                ->setProducts($orderData['products']);
+                ->setWeightKg($orderWeight)
+                ->setComments(
+                    null !== ($orderData['comment'] ?? null) && '' !== trim((string) $orderData['comment'])
+                        ? [[
+                            'id' => DeliveryOrder::newCommentId(),
+                            'text' => (string) $orderData['comment'],
+                            'color' => DeliveryOrder::COMMENT_COLOR_DEFAULT,
+                        ]]
+                        : [],
+                )
+                ->setProducts($orderData['products'])
+                ->setProductBackgroundColors($orderData['productBackgroundColors'] ?? null);
 
             $route->addOrder($order);
+        }
+
+        if (null === $route->getTotalWeightKg() && $ordersHaveWeight) {
+            $route->setTotalWeightKg(round($ordersWeightSum, 1));
         }
 
         $this->metrics->rebuild($route);
@@ -121,15 +153,20 @@ class RoutePdfImportService
      *         position: int,
      *         clientName: string,
      *         phone: string|null,
+     *         email: string|null,
      *         address: string,
-     *         products: list<string>
+     *         weightKg: float|null,
+     *         comment: string|null,
+     *         products: list<string>,
+     *         productBackgroundColors?: list<string|null>
      *     }>
      * }
      */
     public function parseFirstTable(string $text): array
     {
         $firstTable = $this->cutToFirstTable($text);
-        $routeName = $this->extractRouteName($firstTable) ?? 'Imported route';
+        $header = $this->extractRouteHeader($firstTable);
+        $routeName = $header['routeName'] ?? 'Imported route';
         $lines = preg_split('/\R/u', $firstTable) ?: [];
 
         $orders = [];
@@ -137,7 +174,7 @@ class RoutePdfImportService
         $section = 'idle'; // idle|name|address|contact|lp|products|tail
 
         foreach ($lines as $rawLine) {
-            $line = trim($rawLine);
+            $line = $this->normalizePdfLine($rawLine);
             if ('' === $line) {
                 continue;
             }
@@ -151,18 +188,25 @@ class RoutePdfImportService
                     $orders[] = $this->finalizeOrder($current);
                 }
 
+                $nameRemainder = isset($m[2]) ? trim($m[2]) : '';
+                $split = '' !== $nameRemainder ? $this->splitNameAndAddress($nameRemainder) : null;
+
                 $current = [
                     'position' => (int) $m[1],
-                    'clientName' => isset($m[2]) ? trim($m[2]) : '',
+                    'clientName' => '',
                     'phone' => null,
                     'address' => '',
                     'products' => [],
-                    'nameParts' => isset($m[2]) && '' !== trim($m[2]) ? [trim($m[2])] : [],
-                    'addressParts' => [],
+                    'weightKg' => null,
+                    'commentParts' => [],
+                    'nameParts' => null !== $split
+                        ? ('' !== $split['name'] ? [$split['name']] : [])
+                        : ('' !== $nameRemainder ? [$nameRemainder] : []),
+                    'addressParts' => null !== $split && '' !== $split['address'] ? [$split['address']] : [],
                     'contactParts' => [],
                     'productBuffer' => null,
                 ];
-                $section = 'name';
+                $section = null !== $split ? 'address' : 'name';
                 continue;
             }
 
@@ -176,6 +220,19 @@ class RoutePdfImportService
                     $section = 'address';
                     continue;
                 }
+
+                $split = $this->splitNameAndAddress($line);
+                if (null !== $split) {
+                    if ('' !== $split['name']) {
+                        $current['nameParts'][] = $split['name'];
+                    }
+                    if ('' !== $split['address']) {
+                        $current['addressParts'][] = $split['address'];
+                    }
+                    $section = 'address';
+                    continue;
+                }
+
                 $current['nameParts'][] = $line;
                 continue;
             }
@@ -211,8 +268,15 @@ class RoutePdfImportService
             }
 
             if ('products' === $section || 'tail' === $section) {
-                if ($this->isWeightLine($line) || $this->isRemarkLine($line)) {
+                if ($this->isWeightLine($line)) {
                     $this->flushProductBuffer($current);
+                    $current['weightKg'] = $this->parseGermanFloat($line);
+                    $section = 'tail';
+                    continue;
+                }
+                if ($this->isRemarkLine($line)) {
+                    $this->flushProductBuffer($current);
+                    $current['commentParts'][] = $line;
                     $section = 'tail';
                     continue;
                 }
@@ -236,6 +300,7 @@ class RoutePdfImportService
 
         return [
             'routeName' => $routeName,
+            'totalWeightKg' => $header['totalWeightKg'],
             'orders' => $orders,
         ];
     }
@@ -247,16 +312,58 @@ class RoutePdfImportService
         return trim($parts[0] ?? $text);
     }
 
-    private function extractRouteName(string $text): ?string
+    /**
+     * @return array{routeName: string|null, totalWeightKg: float|null}
+     */
+    private function extractRouteHeader(string $text): array
     {
-        if (preg_match('/Seite\s+\d+\s*\/\s*\d+\s+(.+?)(?:\r?\n|$)/u', $text, $m)) {
-            $name = trim($m[1]);
+        // Prefer the first "Seite n/m … (123,4kg)" header line.
+        if (preg_match(
+            '/Seite\s+\d+\s*\/\s*\d+\s+([^\r\n]*?)\((\d+[.,]\d+)\s*kg\)/iu',
+            $text,
+            $m,
+        )) {
+            $name = $this->normalizePdfLine($m[1]);
             $name = preg_replace('/\s+\(\d+[.,]\d+\s*kg\)\s*$/iu', '', $name) ?? $name;
 
-            return trim($name);
+            return [
+                'routeName' => trim($name),
+                'totalWeightKg' => $this->parseGermanFloat($m[2]),
+            ];
         }
 
-        return null;
+        if (preg_match('/Seite\s+\d+\s*\/\s*\d+\s+(.+?)(?:\r?\n|$)/u', $text, $m)) {
+            $name = $this->normalizePdfLine($m[1]);
+            $totalWeightKg = null;
+            if (preg_match('/\((\d+[.,]\d+)\s*kg\)\s*$/iu', $name, $wm)) {
+                $totalWeightKg = $this->parseGermanFloat($wm[1]);
+                $name = preg_replace('/\s+\(\d+[.,]\d+\s*kg\)\s*$/iu', '', $name) ?? $name;
+            }
+
+            return [
+                'routeName' => trim($name),
+                'totalWeightKg' => $totalWeightKg,
+            ];
+        }
+
+        return [
+            'routeName' => null,
+            'totalWeightKg' => null,
+        ];
+    }
+
+    private function normalizePdfLine(string $line): string
+    {
+        $line = str_replace(["\u{00A0}", "\u{202F}", "\u{2009}", "\t"], ' ', $line);
+
+        return trim(preg_replace('/\s+/u', ' ', $line) ?? $line);
+    }
+
+    private function parseGermanFloat(string $value): float
+    {
+        $normalized = str_replace([' ', ','], ['', '.'], $this->normalizePdfLine($value));
+
+        return round((float) $normalized, 1);
     }
 
     private function isSkippableHeader(string $line): bool
@@ -296,6 +403,24 @@ class RoutePdfImportService
         return 1 === preg_match('/^\d{5}\b/u', $line);
     }
 
+    /**
+     * Name and address may share one line: "Client Name, 12345 City, Street".
+     * Split at the first comma that is followed by a German PLZ.
+     *
+     * @return array{name: string, address: string}|null
+     */
+    private function splitNameAndAddress(string $line): ?array
+    {
+        if (!preg_match('/^(.*),\s*(\d{5}\b.*)$/u', $line, $m)) {
+            return null;
+        }
+
+        return [
+            'name' => trim($m[1], " \t,"),
+            'address' => trim($m[2]),
+        ];
+    }
+
     private function isContactLine(string $line): bool
     {
         if ($this->looksLikeEmail($line)) {
@@ -328,7 +453,7 @@ class RoutePdfImportService
 
     private function isWeightLine(string $line): bool
     {
-        return 1 === preg_match('/^\d+,\d+\s*$/u', $line);
+        return 1 === preg_match('/^\d+[.,]\d+\s*$/u', $line);
     }
 
     private function isRemarkLine(string $line): bool
@@ -381,7 +506,10 @@ class RoutePdfImportService
      *     position: int,
      *     clientName: string,
      *     phone: string|null,
+     *     email: string|null,
      *     address: string,
+     *     weightKg: float|null,
+     *     comment: string|null,
      *     products: list<string>
      * }
      */
@@ -392,6 +520,7 @@ class RoutePdfImportService
         $clientName = trim(preg_replace('/\s+/u', ' ', implode(' ', $current['nameParts'])) ?? '');
         $address = trim(preg_replace('/\s+/u', ' ', implode(' ', $current['addressParts'])) ?? '');
         $phone = $this->extractPhone($current['contactParts']);
+        $email = $this->extractEmail($current['contactParts']);
 
         if ('' === $clientName) {
             throw new \InvalidArgumentException(sprintf('Order position %d has no client name', $current['position']));
@@ -406,13 +535,248 @@ class RoutePdfImportService
             static fn ($p): bool => \is_string($p) && '' !== trim($p),
         ));
 
+        $weightKg = isset($current['weightKg']) && is_numeric($current['weightKg'])
+            ? (float) $current['weightKg']
+            : null;
+
+        $commentParts = [];
+        foreach ($current['commentParts'] ?? [] as $part) {
+            if (!\is_string($part)) {
+                continue;
+            }
+            $value = trim($part);
+            if ('' !== $value) {
+                $commentParts[] = $value;
+            }
+        }
+        $comment = [] !== $commentParts
+            ? trim(preg_replace('/\s+/u', ' ', implode(' ', $commentParts)) ?? '')
+            : '';
+
         return [
             'position' => $current['position'],
             'clientName' => $clientName,
             'phone' => $phone,
+            'email' => $email,
             'address' => $address,
+            'weightKg' => $weightKg,
+            'comment' => '' !== $comment ? $comment : null,
             'products' => $products,
         ];
+    }
+
+    /**
+     * Attach PDF article-cell background colors to each product, in document order.
+     *
+     * @param list<array<string, mixed>> $orders
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function assignProductBackgroundColors(UploadedFile $file, array $orders): array
+    {
+        $queue = $this->extractProductBackgroundColorQueue($file);
+        $queueIndex = 0;
+
+        foreach ($orders as $orderIndex => $order) {
+            $products = $order['products'] ?? [];
+            if (!\is_array($products) || [] === $products) {
+                $orders[$orderIndex]['productBackgroundColors'] = [];
+                continue;
+            }
+
+            $colors = [];
+            foreach ($products as $_) {
+                $colors[] = $queue[$queueIndex] ?? null;
+                ++$queueIndex;
+            }
+            $orders[$orderIndex]['productBackgroundColors'] = $colors;
+        }
+
+        return $orders;
+    }
+
+    /**
+     * @return list<string|null> hex colors for each product-start line across the PDF
+     */
+    private function extractProductBackgroundColorQueue(UploadedFile $file): array
+    {
+        $path = $file->getRealPath();
+        if (false === $path || !is_readable($path)) {
+            return [];
+        }
+
+        try {
+            $pdf = (new Parser())->parseFile($path);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $queue = [];
+        foreach ($pdf->getPages() as $page) {
+            if (!$page instanceof Page) {
+                continue;
+            }
+
+            $fills = $this->extractArticleFillsFromPage($page);
+            foreach ($page->getDataTm() as $row) {
+                if (!\is_array($row)) {
+                    continue;
+                }
+                $text = trim(preg_replace('/\s+/u', ' ', (string) ($row[1] ?? '')) ?? '');
+                if ('' === $text || !$this->isProductStart($text)) {
+                    continue;
+                }
+
+                $y = isset($row[0][5]) && is_numeric($row[0][5]) ? (float) $row[0][5] : null;
+                if (null === $y) {
+                    $queue[] = null;
+                    continue;
+                }
+
+                $queue[] = $this->matchFillColorAtY($fills, $y);
+            }
+        }
+
+        return $queue;
+    }
+
+    /**
+     * @return list<array{hex: string, x: float, y: float, w: float, h: float}>
+     */
+    private function extractArticleFillsFromPage(Page $page): array
+    {
+        $raw = $this->readPageContentStream($page);
+        if ('' === $raw) {
+            return [];
+        }
+
+        if (!preg_match_all('/(?:[+-]?(?:\d+\.\d*|\.\d+|\d+)|[A-Za-z]+)/', $raw, $matches)) {
+            return [];
+        }
+
+        $tokens = $matches[0];
+        $fills = [];
+        $r = 0.0;
+        $g = 0.0;
+        $b = 0.0;
+        $hasRgb = false;
+        $count = \count($tokens);
+
+        for ($i = 0; $i < $count; ++$i) {
+            $token = $tokens[$i];
+
+            if (
+                'rg' === $token
+                && $i >= 3
+                && is_numeric($tokens[$i - 3])
+                && is_numeric($tokens[$i - 2])
+                && is_numeric($tokens[$i - 1])
+            ) {
+                $r = (float) $tokens[$i - 3];
+                $g = (float) $tokens[$i - 2];
+                $b = (float) $tokens[$i - 1];
+                $hasRgb = true;
+                continue;
+            }
+
+            if (
+                're' !== $token
+                || !$hasRgb
+                || $i + 1 >= $count
+                || 'f' !== $tokens[$i + 1]
+                || $i < 4
+                || !is_numeric($tokens[$i - 4])
+                || !is_numeric($tokens[$i - 3])
+                || !is_numeric($tokens[$i - 2])
+                || !is_numeric($tokens[$i - 1])
+            ) {
+                continue;
+            }
+
+            $x = (float) $tokens[$i - 4];
+            $y = (float) $tokens[$i - 3];
+            $w = (float) $tokens[$i - 2];
+            $h = (float) $tokens[$i - 1];
+            if ($w < 0) {
+                $x += $w;
+                $w = -$w;
+            }
+            if ($h < 0) {
+                $y += $h;
+                $h = -$h;
+            }
+
+            // Artikel column cell fills in MySpiegel route sheets.
+            if ($x < 200.0 || $x > 250.0 || $w < 140.0 || $h < 8.0 || $h > 50.0) {
+                continue;
+            }
+
+            $hex = sprintf(
+                '#%02X%02X%02X',
+                (int) round($r * 255),
+                (int) round($g * 255),
+                (int) round($b * 255),
+            );
+            if ('#FFFFFF' === $hex || '#000000' === $hex) {
+                continue;
+            }
+
+            $fills[] = [
+                'hex' => $hex,
+                'x' => $x,
+                'y' => $y,
+                'w' => $w,
+                'h' => $h,
+            ];
+        }
+
+        return $fills;
+    }
+
+    private function readPageContentStream(Page $page): string
+    {
+        $contents = $page->get('Contents');
+        if ($contents instanceof PDFObject) {
+            return (string) $contents->getContent();
+        }
+
+        if (!\is_array($contents)) {
+            return '';
+        }
+
+        $raw = '';
+        foreach ($contents as $part) {
+            if ($part instanceof PDFObject) {
+                $raw .= (string) $part->getContent();
+            }
+        }
+
+        return $raw;
+    }
+
+    /**
+     * @param list<array{hex: string, x: float, y: float, w: float, h: float}> $fills
+     */
+    private function matchFillColorAtY(array $fills, float $y): ?string
+    {
+        $bestHex = null;
+        $bestDistance = PHP_FLOAT_MAX;
+
+        foreach ($fills as $fill) {
+            $y0 = $fill['y'];
+            $y1 = $fill['y'] + $fill['h'];
+            if ($y < $y0 - 3.0 || $y > $y1 + 10.0) {
+                continue;
+            }
+
+            $distance = abs($y - (($y0 + $y1) / 2.0));
+            if ($distance < $bestDistance) {
+                $bestDistance = $distance;
+                $bestHex = $fill['hex'];
+            }
+        }
+
+        return $bestHex;
     }
 
     /**
@@ -439,6 +803,25 @@ class RoutePdfImportService
             $withoutEmail = trim(preg_replace('/[^\s,]+@[^\s,]+/u', '', $blob) ?? '', " \t,");
 
             return '' !== $withoutEmail ? $withoutEmail : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<string> $contactParts
+     */
+    private function extractEmail(array $contactParts): ?string
+    {
+        $blob = trim(preg_replace('/\s+/u', ' ', implode(' ', $contactParts)) ?? '');
+        if ('' === $blob) {
+            return null;
+        }
+
+        if (preg_match('/([^\s,]+@[^\s,]+)/u', $blob, $m)) {
+            $email = trim($m[1], " \t,");
+
+            return '' !== $email ? $email : null;
         }
 
         return null;
