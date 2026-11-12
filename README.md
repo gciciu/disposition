@@ -32,9 +32,11 @@ From an existing checkout (no clone):
 ./scripts/install-dev-ubuntu.sh --inplace
 ```
 
-Later starts:
+Later starts (from the folder where you ran the installer — project lives in a sibling folder such as `./delivery/`):
 
 ```bash
+./start-dev.sh
+# or, from inside the project:
 ./scripts/start-dev.sh
 ```
 

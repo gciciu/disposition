@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Bootstrap local development on Ubuntu:
-# put this script (and optional helpers) into any client folder, cd into it, run.
-# Creates a new subfolder inside it, clones the repo there, installs deps,
-# asks for settings (e.g. GOOGLE_MAPS_API_KEY), configures the project.
+# put this script into any client folder, cd into it, run.
+# Creates a project folder NEXT TO this script, clones the repo there,
+# installs deps, sets ownership/executable bits, copies start-dev.sh
+# beside this installer, asks for settings, configures the project.
 #
 # Usage (client folder name can be anything):
 #   mkdir ~/client-setup && cd ~/client-setup
-#   # put scripts here, then:
+#   curl -fsSL -o install-dev-ubuntu.sh \
+#     https://raw.githubusercontent.com/gciciu/disposition/main/scripts/install-dev-ubuntu.sh
 #   chmod +x install-dev-ubuntu.sh
 #   ./install-dev-ubuntu.sh
-#   # → creates ./delivery (or --dir NAME) and clones the project into it
+#   # → creates ./delivery (or --dir NAME) next to this script
+#   # → installs ./start-dev.sh launcher next to this script
 #
 # Or from an existing checkout:
 #   ./scripts/install-dev-ubuntu.sh --inplace
@@ -357,8 +360,6 @@ fi
 
 [[ -f "$TARGET_DIR/backend/composer.json" ]] || die "backend/composer.json missing in $TARGET_DIR"
 
-chmod +x "$TARGET_DIR/scripts/"*.sh 2>/dev/null || true
-
 # --- MySQL database ---
 log "Configuring MySQL database"
 mysql_root() {
@@ -451,7 +452,6 @@ MERCURE_PUBLISHER_JWT_ALG=HS256
 MERCURE_SUBSCRIBER_JWT_ALG=HS256
 MERCURE_EXTRA_DIRECTIVES=cors_origins http://127.0.0.1:1420 http://localhost:1420
 EOF
-chmod 600 "$TARGET_DIR/mercure/.env"
 info "Wrote mercure/.env"
 
 # JWT keys are not in git. Missing/mismatched keys cause:
@@ -477,9 +477,6 @@ ensure_jwt_keys() {
     die "JWT keys missing after generation ($private_pem). Login will show 'Your session has expired'."
   fi
 
-  chmod 640 "$private_pem" || true
-  chmod 644 "$public_pem" || true
-
   (
     cd "$backend"
     if ! php bin/console lexik:jwt:check-config --no-interaction; then
@@ -491,6 +488,73 @@ ensure_jwt_keys() {
   )
 
   info "JWT keys OK: $backend/config/jwt"
+}
+
+# Ownership / mode fixes after clone, composer, keygen, binary downloads.
+# If the installer was started with sudo, trees often end up root-owned and
+# the real user cannot write var/ or run start-dev.sh.
+ensure_permissions() {
+  local root="$1"
+  local owner="" group=""
+
+  if [[ "$(id -u)" -eq 0 && -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    owner="$SUDO_USER"
+    group="$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")"
+    info "Fixing ownership → ${owner}:${group}"
+    chown -R "$owner:$group" "$root" || true
+    if [[ -f "$SCRIPT_DIR/start-dev.sh" ]]; then
+      chown "$owner:$group" "$SCRIPT_DIR/start-dev.sh" || true
+    fi
+    if [[ -f "$SCRIPT_DIR/install-dev-ubuntu.sh" ]]; then
+      chown "$owner:$group" "$SCRIPT_DIR/install-dev-ubuntu.sh" || true
+    fi
+  fi
+
+  mkdir -p \
+    "$root/backend/var/cache" \
+    "$root/backend/var/log" \
+    "$root/backend/var/uploads" \
+    "$root/backend/config/jwt" \
+    "$root/.dev-logs"
+
+  # Shell helpers (repo + launcher next to this installer)
+  if compgen -G "$root/scripts/"'*.sh' >/dev/null 2>&1; then
+    chmod +x "$root/scripts/"*.sh || true
+  fi
+  chmod +x "$SCRIPT_DIR/install-dev-ubuntu.sh" 2>/dev/null || true
+  chmod +x "$SCRIPT_DIR/start-dev.sh" 2>/dev/null || true
+
+  # Downloaded binaries
+  [[ -f "$root/mercure/mercure" ]] && chmod 755 "$root/mercure/mercure"
+  [[ -f "$root/mailpit/mailpit" ]] && chmod 755 "$root/mailpit/mailpit"
+
+  # Writable runtime dirs
+  chmod -R u+rwX "$root/backend/var" "$root/.dev-logs" 2>/dev/null || true
+
+  # Secrets / JWT
+  [[ -f "$root/backend/.env.local" ]] && chmod 600 "$root/backend/.env.local"
+  [[ -f "$root/mercure/.env" ]] && chmod 600 "$root/mercure/.env"
+  [[ -f "$root/backend/config/jwt/private.pem" ]] && chmod 640 "$root/backend/config/jwt/private.pem"
+  [[ -f "$root/backend/config/jwt/public.pem" ]] && chmod 644 "$root/backend/config/jwt/public.pem"
+
+  info "Permissions OK under $root"
+}
+
+install_start_launcher() {
+  # Keep start-dev.sh next to this installer so the client can run:
+  #   ./start-dev.sh
+  # and it will find the project folder beside the script.
+  local src="$TARGET_DIR/scripts/start-dev.sh"
+  local dst="$SCRIPT_DIR/start-dev.sh"
+  if [[ ! -f "$src" ]]; then
+    return 0
+  fi
+  if [[ "$(cd "$(dirname "$src")" && pwd)/$(basename "$src")" == "$(cd "$(dirname "$dst")" && pwd)/$(basename "$dst")" ]]; then
+    return 0
+  fi
+  cp "$src" "$dst"
+  chmod +x "$dst"
+  info "Installed launcher: $dst → project $TARGET_DIR"
 }
 
 # --- PHP / JS deps ---
@@ -538,6 +602,10 @@ else
   info "  cd $TARGET_DIR/backend && php bin/console app:user:create-super-admin email@example.com 'Secret' --name=Admin --force"
 fi
 
+log "Applying permissions"
+ensure_permissions "$TARGET_DIR"
+install_start_launcher
+
 # --- done ---
 log "Setup complete"
 cat <<EOF
@@ -561,12 +629,20 @@ echo
 echo "If login immediately shows 'Your session has expired', regenerate JWT keys:"
 echo "  cd $TARGET_DIR/backend && php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction && php bin/console lexik:jwt:check-config"
 echo
-echo "Start later with:"
-echo "  cd $TARGET_DIR && ./scripts/start-dev.sh"
+echo "Start later with (from the folder that contains this installer):"
+echo "  ./start-dev.sh"
+echo "  # or: $TARGET_DIR/scripts/start-dev.sh"
 echo
 
+START_SCRIPT="$SCRIPT_DIR/start-dev.sh"
+if [[ ! -f "$START_SCRIPT" ]]; then
+  START_SCRIPT="$TARGET_DIR/scripts/start-dev.sh"
+fi
 
 if [[ "$START_AFTER" -eq 1 ]]; then
   log "Starting development services"
-  exec bash "$TARGET_DIR/scripts/start-dev.sh"
+  if [[ "$(id -u)" -eq 0 && -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    exec sudo -u "$SUDO_USER" -H bash "$START_SCRIPT"
+  fi
+  exec bash "$START_SCRIPT"
 fi

@@ -50,6 +50,8 @@ security:
             provider: app_user_provider
 
     access_control:
+        # Browser CORS preflight has no JWT — must stay public before /api/admin rules.
+        - { path: ^/api, roles: PUBLIC_ACCESS, methods: [OPTIONS] }
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
         - { path: ^/api/token, roles: PUBLIC_ACCESS }
         - { path: ^/api/driver/app-version, roles: PUBLIC_ACCESS }

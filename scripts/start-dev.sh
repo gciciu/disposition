@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # Start local development processes (API, Mercure, Mailpit, Vite frontends).
-# Works from: scripts/ inside the repo, project root, or the client folder
-# that contains a cloned project subfolder (e.g. ./delivery/).
+#
+# Preferred layout after install-dev-ubuntu.sh:
+#   <client-folder>/
+#     install-dev-ubuntu.sh
+#     start-dev.sh          ← this launcher
+#     delivery/             ← project folder next to the script
+#
+# Also works from: project root, or project/scripts/.
 # If services are already running on the known ports, stop them and restart.
-# Usage: ./scripts/start-dev.sh   OR   ./start-dev.sh
+# Usage: ./start-dev.sh   OR   ./scripts/start-dev.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 resolve_project_root() {
   local base="$1" preferred="${DELIVERY_DIR_NAME:-delivery}" d
-  if [[ -f "$base/backend/composer.json" ]]; then
-    printf '%s\n' "$base"
-    return 0
-  fi
-  if [[ -f "$base/../backend/composer.json" ]]; then
-    (cd "$base/.." && pwd)
-    return 0
-  fi
+
+  # 1) Project folder next to this script (install-dev layout)
   if [[ -f "$base/$preferred/backend/composer.json" ]]; then
-    printf '%s\n' "$base/$preferred"
+    (cd "$base/$preferred" && pwd)
     return 0
   fi
   for d in "$base"/*/ ; do
@@ -29,14 +29,30 @@ resolve_project_root() {
       return 0
     fi
   done
+
+  # 2) Script lives in the project root
+  if [[ -f "$base/backend/composer.json" ]]; then
+    printf '%s\n' "$base"
+    return 0
+  fi
+
+  # 3) Script lives in project/scripts/
+  if [[ -f "$base/../backend/composer.json" ]]; then
+    (cd "$base/.." && pwd)
+    return 0
+  fi
+
   return 1
 }
 
 ROOT="$(resolve_project_root "$SCRIPT_DIR")" || {
   echo "ERROR: cannot find project root (backend/composer.json)." >&2
-  echo "Run from the project folder, scripts/, or the client folder that contains it." >&2
+  echo "Expected a project folder next to this script (e.g. ./delivery/)," >&2
+  echo "or run from the project root / project/scripts/." >&2
   exit 1
 }
+
+echo "Project: $ROOT"
 
 script_path() {
   local name="$1"

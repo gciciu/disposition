@@ -3,7 +3,9 @@ nelmio_cors:
         origin_regex: true
         allow_origin: ['%env(CORS_ALLOW_ORIGIN)%']
         allow_methods: ['GET', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']
-        allow_headers: ['Content-Type', 'Authorization', 'X-Delivery-Authorization']
+        # Wildcard avoids preflight 400 when the browser asks for extra request headers
+        # (Accept, X-Delivery-Authorization, etc.) not listed explicitly.
+        allow_headers: ['*']
         expose_headers: ['Link']
         max_age: 3600
     paths:
