@@ -208,8 +208,8 @@ if [[ -x "$ROOT/mailpit/mailpit" ]]; then
   start_bg mailpit "$ROOT/mailpit/mailpit" --smtp "127.0.0.1:${MAILPIT_SMTP_PORT}" --listen "127.0.0.1:${MAILPIT_UI_PORT}"
 fi
 
-# Symfony PHP built-in server
-start_bg api bash -c "cd \"$ROOT/backend\" && php -S 127.0.0.1:${API_PORT} -t public"
+# Symfony PHP built-in server (router keeps Authorization for Lexik JWT)
+start_bg api bash -c "cd \"$ROOT/backend\" && php -S 127.0.0.1:${API_PORT} -t public public/router.php"
 
 # Frontends
 start_bg admin bash -c "cd \"$ROOT/admin_frontend\" && npm run dev -- --host 127.0.0.1 --port ${ADMIN_PORT}"

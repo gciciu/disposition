@@ -425,6 +425,7 @@ Optional host-specific automation draft: `scripts/deploy-test-server.sh` (adapt 
 | Mercure fails | `/.well-known/mercure` location, `delivery-mercure` on `:3000`, JWT secret match |
 | CORS | `CORS_ALLOW_ORIGIN` domains |
 | JWT 500 / login then **Your session has expired** + cannot load routes | `config/jwt/*.pem` missing or out of sync with `JWT_PASSPHRASE` (keys are not in git — generate on every machine). Fix: `mkdir -p config/jwt && php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction && php bin/console lexik:jwt:check-config` |
+| Login **200**, next `/api/.../routes` → **401 JWT Token not found** | `Authorization` header never reaches PHP/Lexik (CGI/proxy strip). SPA sends fallback `X-Delivery-Authorization`; `public/index.php` + `public/router.php` restore it. Dev: start API via `./scripts/start-dev.sh` (uses `public/router.php`). In Network → Request Headers both `Authorization` and `X-Delivery-Authorization` must be present. |
 | Uploads / cache | `backend/var` permissions |
 
 ---

@@ -165,10 +165,27 @@ function isPublicAuthRequest(config) {
   return url.includes('/api/login') || url.includes('/api/token/refresh') || url.includes('/api/token/logout')
 }
 
+function setAuthorizationHeader(headers, token) {
+  if (!headers || !token) {
+    return
+  }
+  // Send both: some PHP SAPIs strip Authorization and Lexik then returns
+  // "JWT Token not found". X-Delivery-Authorization is restored in public/index.php.
+  const value = `Bearer ${token}`
+  if (typeof headers.set === 'function') {
+    headers.set('Authorization', value)
+    headers.set('X-Delivery-Authorization', value)
+  } else {
+    headers.Authorization = value
+    headers['X-Delivery-Authorization'] = value
+  }
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    config.headers = config.headers || {}
+    setAuthorizationHeader(config.headers, token)
   }
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
     if (config.headers && typeof config.headers.set === 'function') {
@@ -200,7 +217,7 @@ api.interceptors.response.use(
     try {
       const token = await refreshOnce()
       original.headers = original.headers || {}
-      original.headers.Authorization = `Bearer ${token}`
+      setAuthorizationHeader(original.headers, token)
       return api(original)
     } catch (refreshError) {
       expireSession()

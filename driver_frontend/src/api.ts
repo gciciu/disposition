@@ -115,7 +115,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const token = readStoredToken();
   if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+    // Send both: some PHP SAPIs strip Authorization ("JWT Token not found").
+    // X-Delivery-Authorization is restored in backend public/index.php.
+    const value = `Bearer ${token}`;
+    headers.set("Authorization", value);
+    headers.set("X-Delivery-Authorization", value);
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
