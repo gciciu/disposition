@@ -6,6 +6,9 @@ nelmio_cors:
         # Wildcard avoids preflight 400 when the browser asks for extra request headers
         # (Accept, X-Delivery-Authorization, etc.) not listed explicitly.
         allow_headers: ['*']
+        # Firefox/Chrome local-dev preflight sends Access-Control-Request-Private-Network.
+        # Default false → Nelmio returns 400 "Private Network Access is not allowed."
+        allow_private_network: true
         expose_headers: ['Link']
         max_age: 3600
     paths:
