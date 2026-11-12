@@ -92,6 +92,29 @@ const showDelayOnOrder = computed(
 
 const displayAddress = (item) => withoutCountry(item.formattedAddress || item.address)
 
+const accessoryIndexSet = (item) =>
+  new Set(
+    (item?.accessoryProductIndexes ?? [])
+      .map((index) => Number(index))
+      .filter((index) => Number.isInteger(index) && index >= 0),
+  )
+
+const regularProducts = computed(() => {
+  const products = order.value?.products ?? []
+  const accessories = accessoryIndexSet(order.value)
+  return products
+    .map((product, index) => ({ product, index }))
+    .filter(({ index }) => !accessories.has(index))
+})
+
+const accessoryProducts = computed(() => {
+  const products = order.value?.products ?? []
+  const accessories = accessoryIndexSet(order.value)
+  return products
+    .map((product, index) => ({ product, index }))
+    .filter(({ index }) => accessories.has(index))
+})
+
 const isProductDelivered = (item, index) => {
   if (item.status !== 'delivered') {
     return false
@@ -196,8 +219,17 @@ const onCommentsSaved = (routeData) => {
   syncUnloadDraft({ preserveDirty: true })
 }
 
+const isOrderFinished = computed(
+  () => order.value?.status === 'delivered' || order.value?.status === 'refused',
+)
+
 const applyUnload = async () => {
-  if (!routeDetail.value?.id || !order.value?.id || applyingUnload.value) {
+  if (
+    !routeDetail.value?.id ||
+    !order.value?.id ||
+    applyingUnload.value ||
+    isOrderFinished.value
+  ) {
     return
   }
 
@@ -350,7 +382,15 @@ watch(
               {{ order.position }}
             </span>
             <div>
-              <div class="text-lg font-semibold">{{ order.clientName }}</div>
+              <div class="text-lg font-semibold">
+                {{ order.clientName }}
+                <span
+                  v-if="order.isExchange"
+                  class="ml-2 align-middle text-xs font-bold uppercase text-violet-700 dark:text-violet-300"
+                >
+                  {{ t('deliveryRoutes.statusExchange') }}
+                </span>
+              </div>
               <div
                 class="text-sm font-bold uppercase"
                 :class="{
@@ -389,16 +429,17 @@ watch(
               </div>
               <div class="mt-1 flex items-center gap-0.5">
                 <input
-                  class="w-12 rounded border border-gray-300 px-1.5 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
+                  class="w-12 rounded border border-gray-300 px-1.5 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
                   type="number"
                   :min="UNLOAD_MIN"
                   :max="UNLOAD_MAX"
                   :value="unloadDraft ?? savedUnloadMinutes()"
-                  :disabled="applyingUnload"
+                  :disabled="isOrderFinished || applyingUnload"
                   :aria-label="`${t('deliveryRoutes.unloadTime')} (${t('deliveryRoutes.unloadMinutesUnit')})`"
                   @input="onUnloadDraftInput"
                 />
                 <button
+                  v-if="!isOrderFinished"
                   type="button"
                   class="inline-flex items-center justify-center rounded p-1 transition-colors"
                   :class="
@@ -480,6 +521,19 @@ watch(
                 </span>
               </button>
             </div>
+            <div class="sm:col-span-2 lg:col-span-3">
+              <div class="text-xs text-gray-500 uppercase">
+                {{ t('deliveryRoutes.courierComment') }}
+              </div>
+              <div class="mt-1 rounded border border-gray-200 px-3 py-2 text-sm dark:border-slate-600">
+                <span v-if="order.courierComment" class="whitespace-pre-wrap">
+                  {{ order.courierComment }}
+                </span>
+                <span v-else class="text-gray-400">
+                  {{ t('deliveryRoutes.courierCommentEmpty') }}
+                </span>
+              </div>
+            </div>
           </div>
         </CardBox>
 
@@ -496,9 +550,9 @@ watch(
           <div class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
             {{ t('deliveryRoutes.products') }}
           </div>
-          <ul v-if="order.products?.length" class="list-none space-y-2 pl-0">
+          <ul v-if="regularProducts.length" class="list-none space-y-2 pl-0">
             <li
-              v-for="(product, idx) in order.products"
+              v-for="{ product, index: idx } in regularProducts"
               :key="idx"
               class="flex items-start gap-2 rounded px-2 py-1.5 text-sm"
               :style="productBackgroundStyle(order, idx)"
@@ -531,6 +585,46 @@ watch(
             </li>
           </ul>
           <div v-else class="text-sm text-gray-400">—</div>
+        </CardBox>
+
+        <CardBox v-if="accessoryProducts.length" class="mb-6">
+          <div class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
+            {{ t('deliveryRoutes.accessories') }}
+          </div>
+          <ul class="list-none space-y-2 pl-0">
+            <li
+              v-for="{ product, index: idx } in accessoryProducts"
+              :key="`acc-${idx}`"
+              class="flex items-start gap-2 rounded px-2 py-1.5 text-sm"
+              :style="productBackgroundStyle(order, idx)"
+            >
+              <span
+                v-if="order.status === 'delivered' || order.status === 'refused'"
+                class="mt-0.5 shrink-0 font-bold"
+                :class="
+                  isProductDelivered(order, idx)
+                    ? 'text-emerald-600'
+                    : isPartialDelivery(order)
+                      ? 'text-yellow-600'
+                      : 'text-red-500'
+                "
+              >
+                {{ isProductDelivered(order, idx) ? '✓' : '✗' }}
+              </span>
+              <span
+                :class="{
+                  'text-yellow-700 dark:text-yellow-500':
+                    isPartialDelivery(order) && !isProductDelivered(order, idx),
+                  'text-gray-400 line-through':
+                    (order.status === 'delivered' || order.status === 'refused') &&
+                    !isProductDelivered(order, idx) &&
+                    !isPartialDelivery(order),
+                }"
+              >
+                {{ product }}
+              </span>
+            </li>
+          </ul>
         </CardBox>
 
         <CardBox>

@@ -91,7 +91,9 @@ class RouteCompletionPdfBuilder
             }
         }
 
-        $accessories = $this->normalizeAccessories($overrides['accessories'] ?? []);
+        $accessories = \array_key_exists('accessories', $overrides)
+            ? $this->normalizeAccessories($overrides['accessories'] ?? [])
+            : $this->buildAccessoriesFromOrders($route);
 
         $footerLabel = sprintf(
             'Route: %s%s',
@@ -213,6 +215,42 @@ class RouteCompletionPdfBuilder
         }
 
         return [];
+    }
+
+    /**
+     * @return list<RouteCompletionPdfAccessory>
+     */
+    private function buildAccessoriesFromOrders(DeliveryRoute $route): array
+    {
+        $accessories = [];
+        foreach ($route->getOrders() as $order) {
+            $indexes = $order->getAccessoryProductIndexes() ?? [];
+            if ([] === $indexes) {
+                continue;
+            }
+
+            $products = $order->getProducts();
+            $deliveredIndexes = $order->getDeliveredProductIndexes();
+            $stopDelivered = DeliveryOrderStatus::Delivered === $order->getStatus();
+
+            foreach ($indexes as $index) {
+                if (!\array_key_exists($index, $products)) {
+                    continue;
+                }
+
+                $delivered = $stopDelivered && (
+                    null === $deliveredIndexes || \in_array($index, $deliveredIndexes, true)
+                );
+
+                $accessories[] = new RouteCompletionPdfAccessory(
+                    position: $order->getPosition(),
+                    description: $products[$index],
+                    delivered: $delivered,
+                );
+            }
+        }
+
+        return $accessories;
     }
 
     /**

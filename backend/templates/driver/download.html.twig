@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ companyName }} — Driver App</title>
+  <style>
+    :root {
+      --bg0: #f5f7fb;
+      --bg1: #e8eef8;
+      --ink: #0b1220;
+      --muted: #5b6b81;
+      --accent: #1f6feb;
+      --accent-hover: #1558c0;
+      --surface: #ffffff;
+      --danger: #b91c1c;
+      --border: rgba(15, 23, 42, 0.08);
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+      --font: "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 100% 0%, #f0f7ff, transparent 50%),
+        linear-gradient(160deg, var(--bg0), var(--bg1));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      width: min(26rem, 100%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1.15rem;
+      box-shadow: var(--shadow);
+      padding: 1.75rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .brand {
+      margin: 0;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.55rem;
+      line-height: 1.2;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(31, 111, 235, 0.12);
+      color: var(--accent);
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .changelog {
+      padding: 0.85rem 0.95rem;
+      border-radius: 0.85rem;
+      background: #f3f7fd;
+      color: var(--ink);
+      white-space: pre-wrap;
+      font-size: 0.92rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 3rem;
+      border: 0;
+      border-radius: 0.85rem;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn[aria-disabled="true"] {
+      opacity: 0.55;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    .hint {
+      font-size: 0.85rem;
+    }
+    .error {
+      color: var(--danger);
+      font-weight: 600;
+    }
+    .link {
+      word-break: break-all;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <p class="brand">{{ companyName }}</p>
+    <h1>Driver App</h1>
+    <p>Android-App für Fahrer. Auf dem Telefon öffnen und installieren.</p>
+
+    {% if available %}
+      <div class="meta">
+        <span class="chip">Version {{ versionName }}</span>
+        <span class="chip">Build {{ versionCode }}</span>
+      </div>
+      {% if changelog %}
+        <div class="changelog">{{ changelog }}</div>
+      {% endif %}
+      <a class="btn" href="{{ apkUrl }}">APK herunterladen</a>
+      <p class="hint">
+        Erlauben Sie die Installation aus unbekannten Quellen, falls Android danach fragt.
+      </p>
+      <p class="link">{{ pageUrl }}</p>
+    {% else %}
+      <p class="error">Die App ist noch nicht veröffentlicht.</p>
+      <a class="btn" href="{{ apkUrl }}" aria-disabled="true">APK herunterladen</a>
+    {% endif %}
+  </main>
+</body>
+</html>

@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 $backendDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'backend';
 $envFile = $backendDir . DIRECTORY_SEPARATOR . '.env';
+$envLocalFile = $backendDir . DIRECTORY_SEPARATOR . '.env.local';
 $jwtDir = $backendDir . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'jwt';
 $privatePath = $jwtDir . DIRECTORY_SEPARATOR . 'private.pem';
 $publicPath = $jwtDir . DIRECTORY_SEPARATOR . 'public.pem';
@@ -20,16 +21,43 @@ if (!is_file($envFile)) {
     exit(1);
 }
 
-$passphrase = null;
-foreach (file($envFile, FILE_IGNORE_NEW_LINES) as $line) {
-    if (str_starts_with($line, 'JWT_PASSPHRASE=')) {
-        $passphrase = substr($line, strlen('JWT_PASSPHRASE='));
-        break;
+/**
+ * Read JWT_PASSPHRASE from Symfony env files (.env.local overrides .env).
+ */
+$readPassphrase = static function (string $path): ?string {
+    if (!is_file($path)) {
+        return null;
     }
-}
+
+    foreach (file($path, FILE_IGNORE_NEW_LINES) as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        if (str_starts_with($line, 'JWT_PASSPHRASE=')) {
+            $value = substr($line, strlen('JWT_PASSPHRASE='));
+            // Strip optional single/double quotes used in dotenv files.
+            if (
+                strlen($value) >= 2
+                && (
+                    (str_starts_with($value, '"') && str_ends_with($value, '"'))
+                    || (str_starts_with($value, "'") && str_ends_with($value, "'"))
+                )
+            ) {
+                $value = substr($value, 1, -1);
+            }
+
+            return $value;
+        }
+    }
+
+    return null;
+};
+
+$passphrase = $readPassphrase($envLocalFile) ?? $readPassphrase($envFile);
 
 if (null === $passphrase || '' === $passphrase) {
-    fwrite(STDERR, "JWT_PASSPHRASE not found in backend/.env\n");
+    fwrite(STDERR, "JWT_PASSPHRASE not found in backend/.env or backend/.env.local\n");
     exit(1);
 }
 

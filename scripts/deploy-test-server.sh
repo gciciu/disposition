@@ -56,11 +56,19 @@ p.write_text("\n".join(out) + "\n", encoding="utf-8")
 print("updated keys:", ", ".join(updates))
 PY
 
-echo "=== 2. composer + migrate + cache ==="
+echo "=== 2. composer + JWT keys + migrate + cache ==="
 cd "$APP/backend"
 composer install --no-dev --optimize-autoloader --no-interaction
-mkdir -p var/uploads
-sudo chown -R serg:www-data var
+mkdir -p var/uploads config/jwt
+# Keys are not in git; missing keys cause login then "Your session has expired"
+if ! php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction; then
+  echo "lexik keygen failed - trying scripts/generate-jwt-keys.php"
+  php "$APP/scripts/generate-jwt-keys.php" --overwrite
+fi
+php bin/console lexik:jwt:check-config --no-interaction
+chmod 640 config/jwt/private.pem || true
+chmod 644 config/jwt/public.pem || true
+sudo chown -R serg:www-data var config/jwt
 sudo chmod -R ug+rwX var
 php bin/console doctrine:migrations:migrate --no-interaction
 php bin/console cache:clear --env=prod --no-warmup

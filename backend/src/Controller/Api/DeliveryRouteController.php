@@ -548,6 +548,15 @@ class DeliveryRouteController extends AbstractController
             }
 
             if (\array_key_exists('unloadingDurationMinutes', $item)) {
+                if ($order->getStatus()->isFinal()) {
+                    return $this->json([
+                        'error' => sprintf(
+                            'Cannot change unloading duration for completed order %d',
+                            $orderId,
+                        ),
+                    ], Response::HTTP_CONFLICT);
+                }
+
                 $minutes = $item['unloadingDurationMinutes'];
                 if (!\is_int($minutes) && !(\is_string($minutes) && is_numeric($minutes))) {
                     return $this->json([

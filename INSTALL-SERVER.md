@@ -107,6 +107,11 @@ composer install --no-dev --optimize-autoloader --no-interaction
 mkdir -p var/uploads config/jwt
 php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction
 # if OpenSSL fails — see scripts/generate-jwt-keys.php
+php bin/console lexik:jwt:check-config
+# must print: The configuration seems correct.
+# Without valid keys, login succeeds then UI shows "Your session has expired".
+chmod 640 config/jwt/private.pem
+chmod 644 config/jwt/public.pem
 
 php bin/console doctrine:migrations:migrate --no-interaction
 # optional demo data (not for production):
@@ -148,6 +153,41 @@ cd /var/www/delivery/driver_frontend
 npm install --no-fund --no-audit
 npm run build
 ```
+
+### Driver Android app (download link + self-update)
+
+Public install page (share with couriers):
+
+- Admin host: `https://delivery.example.com/download`
+- Driver host (via API proxy): `https://driver.example.com/api/driver/download`
+- Direct APK: `https://delivery.example.com/download/app.apk`
+
+The link is also shown on the admin **Couriers** page (copy / open).
+
+The Android app checks `GET /api/driver/app-version` on launch and can download the APK after confirmation.
+
+1. Bump version in `driver_frontend/src-tauri/tauri.conf.json` (`version`) and rebuild/sign the APK.
+2. Copy the APK to `backend/var/driver/driver.apk` (create the directory if needed).
+3. Set in `backend/.env.local` (must match the APK / `tauri.conf.json` version):
+
+```bash
+DRIVER_APP_VERSION_CODE=2
+DRIVER_APP_VERSION_NAME=0.1.1
+DRIVER_APP_FORCE_UPDATE=0
+DRIVER_APP_CHANGELOG=Bugfixes
+DRIVER_APP_APK_FILENAME=driver.apk
+```
+
+4. `php bin/console cache:clear` (or restart php-fpm). Verify:
+
+```bash
+curl -s https://delivery.example.com/api/driver/app-version
+curl -sI https://delivery.example.com/download
+```
+
+On the **driver** vhost (static `driver_frontend/dist`), `/download` is not served by PHP — use `/api/driver/download` there, or proxy `/download` to the backend like `/api`.
+
+Sign every release with the **same** keystore, or Android will refuse the in-place update.
 
 ---
 
@@ -384,7 +424,7 @@ Optional host-specific automation draft: `scripts/deploy-test-server.sh` (adapt 
 | SPA blank / welcome page | `admin_frontend` not built, `open_basedir` blocks `../admin_frontend/dist`, document root not `backend/public` |
 | Mercure fails | `/.well-known/mercure` location, `delivery-mercure` on `:3000`, JWT secret match |
 | CORS | `CORS_ALLOW_ORIGIN` domains |
-| JWT 500 | `config/jwt/*.pem`, `JWT_PASSPHRASE` |
+| JWT 500 / login then **Your session has expired** + cannot load routes | `config/jwt/*.pem` missing or out of sync with `JWT_PASSPHRASE` (keys are not in git — generate on every machine). Fix: `mkdir -p config/jwt && php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction && php bin/console lexik:jwt:check-config` |
 | Uploads / cache | `backend/var` permissions |
 
 ---

@@ -28,7 +28,7 @@ class AdminSpaController extends AbstractController
     #[Route(
         '/{path}',
         name: 'admin_spa_asset',
-        requirements: ['path' => '^(?!api(?:/|$)|_profiler|_wdt|bundles).+'],
+        requirements: ['path' => '^(?!api(?:/|$)|download(?:/|$)|_profiler|_wdt|bundles).+'],
         methods: ['GET'],
         priority: -100,
     )]

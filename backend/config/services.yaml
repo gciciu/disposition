@@ -14,6 +14,11 @@ parameters:
     env(COMPANY_PHONE): '+49561 2207980'
     env(COMPANY_EMAIL): 'info@myspiegel.de'
     env(COMPANY_WEBSITE): 'www.myspiegel.de'
+    env(DRIVER_APP_VERSION_CODE): '1'
+    env(DRIVER_APP_VERSION_NAME): '0.1.0'
+    env(DRIVER_APP_FORCE_UPDATE): '0'
+    env(DRIVER_APP_CHANGELOG): ''
+    env(DRIVER_APP_APK_FILENAME): 'driver.apk'
     app.company:
         name: '%env(COMPANY_NAME)%'
         address: '%env(COMPANY_ADDRESS)%'
@@ -60,6 +65,16 @@ services:
     App\Service\DeliveryConfirmationPdfBuilder:
         arguments:
             $companyDefaults: '%app.company%'
+
+    App\Service\DriverAppRelease:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+            $versionCode: '%env(int:DRIVER_APP_VERSION_CODE)%'
+            $versionName: '%env(DRIVER_APP_VERSION_NAME)%'
+            $forceUpdate: '%env(bool:DRIVER_APP_FORCE_UPDATE)%'
+            $changelog: '%env(DRIVER_APP_CHANGELOG)%'
+            $apkFilename: '%env(DRIVER_APP_APK_FILENAME)%'
+            $companyName: '%env(COMPANY_NAME)%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

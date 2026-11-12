@@ -138,29 +138,62 @@ New-Item -ItemType Directory -Force -Path $jwtDir | Out-Null
 $privatePem = Join-Path $jwtDir "private.pem"
 $publicPem = Join-Path $jwtDir "public.pem"
 
-if ((Test-Path $privatePem) -and (Test-Path $publicPem)) {
-    Write-Host "JWT keys:     already present in $jwtDir"
-    Write-Host "Done. Open a new terminal so PHPRC/OPENSSL_CONF are picked up."
-    exit 0
-}
-
 if (-not (Test-Path (Join-Path $backendDir "vendor"))) {
     throw "backend/vendor missing. Run: cd backend; composer install"
 }
 
-Push-Location $backendDir
-try {
-    & $phpExe bin/console lexik:jwt:generate-keypair --skip-if-exists --no-interaction
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $privatePem) -or -not (Test-Path $publicPem)) {
-        Write-Host "Lexik keygen failed; using scripts/generate-jwt-keys.php"
-        & $phpExe $genScript
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $privatePem) -or -not (Test-Path $publicPem)) {
-            throw "Failed to generate JWT keys"
+function Invoke-JwtKeygen {
+    param([switch]$Overwrite)
+
+    Push-Location $backendDir
+    try {
+        $lexikArgs = @("bin/console", "lexik:jwt:generate-keypair", "--no-interaction")
+        if ($Overwrite) {
+            $lexikArgs += "--overwrite"
+        } else {
+            $lexikArgs += "--skip-if-exists"
         }
+
+        & $phpExe @lexikArgs
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $privatePem) -or -not (Test-Path $publicPem)) {
+            Write-Host "Lexik keygen failed; using scripts/generate-jwt-keys.php"
+            $genArgs = @($genScript)
+            if ($Overwrite) {
+                $genArgs += "--overwrite"
+            }
+            & $phpExe @genArgs
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $privatePem) -or -not (Test-Path $publicPem)) {
+                throw "Failed to generate JWT keys"
+            }
+        }
+    } finally {
+        Pop-Location
     }
-} finally {
-    Pop-Location
 }
 
-Write-Host "JWT keys:     $jwtDir"
+if (-not ((Test-Path $privatePem) -and (Test-Path $publicPem))) {
+    Invoke-JwtKeygen
+} else {
+    Write-Host "JWT keys:     already present in $jwtDir"
+}
+
+function Test-JwtConfig {
+    Push-Location $backendDir
+    try {
+        & $phpExe bin/console lexik:jwt:check-config --no-interaction
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        Pop-Location
+    }
+}
+
+if (-not (Test-JwtConfig)) {
+    Write-Host "JWT config check failed - regenerating keypair to match JWT_PASSPHRASE..."
+    Invoke-JwtKeygen -Overwrite
+    if (-not (Test-JwtConfig)) {
+        throw "JWT keys are invalid. Check JWT_PASSPHRASE in backend/.env.local and run: php bin/console lexik:jwt:generate-keypair --overwrite"
+    }
+}
+
+Write-Host "JWT keys:     $jwtDir (config OK)"
 Write-Host "Done. Open a new terminal so PHPRC/OPENSSL_CONF are picked up."

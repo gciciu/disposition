@@ -25,10 +25,12 @@ async function submit() {
     await login(form.email.trim(), form.password, form.remember);
   } catch (err) {
     if (err instanceof ApiError) {
-      error.value = translateApiError(err.message, t);
+      error.value = translateApiError(err.message, t, "login.failed");
     } else if (err instanceof Error) {
       error.value =
-        err.message === "driversOnly" ? t("login.driversOnly") : translateApiError(err.message, t);
+        err.message === "driversOnly"
+          ? t("login.driversOnly")
+          : translateApiError(err.message, t, "login.failed");
     } else {
       error.value = t("login.failed");
     }

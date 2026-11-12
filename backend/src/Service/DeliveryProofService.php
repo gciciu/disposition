@@ -37,6 +37,7 @@ class DeliveryProofService
         DeliveryProofType $proofType,
         UploadedFile $file,
         ?array $deliveredProductIndexes = null,
+        ?string $courierComment = null,
     ): DeliveryOrder {
         if ($order->getStatus()->isFinal()) {
             throw new ConflictHttpException('Order is already completed');
@@ -118,7 +119,8 @@ class DeliveryProofService
             ->setDeliveredProductIndexes($deliveredProductIndexes)
             ->setProofType($proofType)
             ->setProofPath($relativePath)
-            ->setProofMime($mime === 'image/jpg' ? 'image/jpeg' : $mime);
+            ->setProofMime($mime === 'image/jpg' ? 'image/jpeg' : $mime)
+            ->setCourierComment($courierComment);
 
         $this->em->flush();
         $this->realtime->publishOrderCompleted($order);
@@ -126,7 +128,7 @@ class DeliveryProofService
         return $order;
     }
 
-    public function refuse(DeliveryOrder $order): DeliveryOrder
+    public function refuse(DeliveryOrder $order, ?string $courierComment = null): DeliveryOrder
     {
         if ($order->getStatus()->isFinal()) {
             throw new ConflictHttpException('Order is already completed');
@@ -138,7 +140,8 @@ class DeliveryProofService
             ->setDeliveredProductIndexes([])
             ->setProofType(null)
             ->setProofPath(null)
-            ->setProofMime(null);
+            ->setProofMime(null)
+            ->setCourierComment($courierComment);
 
         $this->em->flush();
         $this->realtime->publishOrderRefused($order);

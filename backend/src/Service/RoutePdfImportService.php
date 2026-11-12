@@ -34,6 +34,7 @@ class RoutePdfImportService
             throw new \InvalidArgumentException('No orders found in the first table of the PDF');
         }
 
+        $parsed['orders'] = $this->markAccessoryProducts($text, $parsed['orders']);
         $parsed['orders'] = $this->assignProductBackgroundColors($file, $parsed['orders']);
 
         $geocodedOrders = [];
@@ -79,7 +80,7 @@ class RoutePdfImportService
         $ordersWeightSum = 0.0;
         $ordersHaveWeight = false;
 
-        foreach (array_values($geocodedOrders) as $index => $orderData) {
+        foreach ($geocodedOrders as $orderData) {
             $orderWeight = isset($orderData['weightKg']) && is_numeric($orderData['weightKg'])
                 ? (float) $orderData['weightKg']
                 : null;
@@ -89,7 +90,8 @@ class RoutePdfImportService
             }
 
             $order = (new DeliveryOrder())
-                ->setPosition($index + 1)
+                // Keep PDF stop numbers (MySpiegel sheets start at Pos 2; Pos 1 is depot).
+                ->setPosition((int) $orderData['position'])
                 ->setClientName($orderData['clientName'])
                 ->setPhone($orderData['phone'])
                 ->setEmail($orderData['email'] ?? null)
@@ -100,17 +102,10 @@ class RoutePdfImportService
                 ->setLng($orderData['lng'])
                 ->setPlaceId($orderData['placeId'])
                 ->setWeightKg($orderWeight)
-                ->setComments(
-                    null !== ($orderData['comment'] ?? null) && '' !== trim((string) $orderData['comment'])
-                        ? [[
-                            'id' => DeliveryOrder::newCommentId(),
-                            'text' => (string) $orderData['comment'],
-                            'color' => DeliveryOrder::COMMENT_COLOR_DEFAULT,
-                        ]]
-                        : [],
-                )
+                ->setComments($this->buildImportComments($orderData['comments'] ?? []))
                 ->setProducts($orderData['products'])
-                ->setProductBackgroundColors($orderData['productBackgroundColors'] ?? null);
+                ->setProductBackgroundColors($orderData['productBackgroundColors'] ?? null)
+                ->setAccessoryProductIndexes($orderData['accessoryProductIndexes'] ?? null);
 
             $route->addOrder($order);
         }
@@ -156,18 +151,39 @@ class RoutePdfImportService
      *         email: string|null,
      *         address: string,
      *         weightKg: float|null,
-     *         comment: string|null,
+     *         comments: list<string>,
      *         products: list<string>,
-     *         productBackgroundColors?: list<string|null>
+     *         productBackgroundColors?: list<string|null>,
+     *         accessoryProductIndexes?: list<int>
      *     }>
      * }
      */
     public function parseFirstTable(string $text): array
     {
-        $firstTable = $this->cutToFirstTable($text);
-        $header = $this->extractRouteHeader($firstTable);
+        return $this->parseOrdersTable($this->cutToFirstTable($text));
+    }
+
+    /**
+     * @return array{
+     *     routeName: string,
+     *     totalWeightKg: float|null,
+     *     orders: list<array{
+     *         position: int,
+     *         clientName: string,
+     *         phone: string|null,
+     *         email: string|null,
+     *         address: string,
+     *         weightKg: float|null,
+     *         comments: list<string>,
+     *         products: list<string>
+     *     }>
+     * }
+     */
+    private function parseOrdersTable(string $tableText): array
+    {
+        $header = $this->extractRouteHeader($tableText);
         $routeName = $header['routeName'] ?? 'Imported route';
-        $lines = preg_split('/\R/u', $firstTable) ?: [];
+        $lines = preg_split('/\R/u', $tableText) ?: [];
 
         $orders = [];
         $current = null;
@@ -313,6 +329,107 @@ class RoutePdfImportService
     }
 
     /**
+     * Text after the "Zubehör" heading, excluding the totals summary.
+     */
+    private function cutAccessoriesTable(string $text): string
+    {
+        $parts = preg_split('/^\s*Zubehör\b.*$/um', $text, 2);
+        $after = trim($parts[1] ?? '');
+        if ('' === $after) {
+            return '';
+        }
+
+        $parts = preg_split('/^\s*Gesamtmengen des Zubehörs\b.*$/um', $after, 2);
+
+        return trim($parts[0] ?? $after);
+    }
+
+    /**
+     * @return array<int, list<string>> PDF stop position => accessory product lines
+     */
+    public function parseAccessoriesTable(string $text): array
+    {
+        $accessoriesText = $this->cutAccessoriesTable($text);
+        if ('' === $accessoriesText) {
+            return [];
+        }
+
+        $parsed = $this->parseOrdersTable($accessoriesText);
+        $byPosition = [];
+        foreach ($parsed['orders'] as $order) {
+            $position = (int) ($order['position'] ?? 0);
+            if ($position < 1) {
+                continue;
+            }
+            /** @var list<string> $products */
+            $products = array_values(array_filter(
+                $order['products'] ?? [],
+                static fn ($product): bool => \is_string($product) && '' !== trim($product),
+            ));
+            if ([] === $products) {
+                continue;
+            }
+            $byPosition[$position] = $products;
+        }
+
+        return $byPosition;
+    }
+
+    /**
+     * Flag products that also appear in the PDF "Zubehör" table for the same stop.
+     *
+     * @param list<array<string, mixed>> $orders
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function markAccessoryProducts(string $text, array $orders): array
+    {
+        $accessoriesByPosition = $this->parseAccessoriesTable($text);
+
+        foreach ($orders as $orderIndex => $order) {
+            $position = (int) ($order['position'] ?? 0);
+            $products = $order['products'] ?? [];
+            if (!\is_array($products) || [] === $products) {
+                $orders[$orderIndex]['accessoryProductIndexes'] = [];
+                continue;
+            }
+
+            $accessoryLines = $accessoriesByPosition[$position] ?? [];
+            if ([] === $accessoryLines) {
+                $orders[$orderIndex]['accessoryProductIndexes'] = [];
+                continue;
+            }
+
+            $accessoryKeys = [];
+            foreach ($accessoryLines as $line) {
+                $accessoryKeys[$this->normalizeProductKey($line)] = true;
+            }
+
+            $indexes = [];
+            foreach ($products as $productIndex => $product) {
+                if (!\is_string($product)) {
+                    continue;
+                }
+                if (isset($accessoryKeys[$this->normalizeProductKey($product)])) {
+                    $indexes[] = (int) $productIndex;
+                }
+            }
+
+            $orders[$orderIndex]['accessoryProductIndexes'] = $indexes;
+        }
+
+        return $orders;
+    }
+
+    private function normalizeProductKey(string $product): string
+    {
+        $normalized = $this->normalizePdfLine($product);
+        $normalized = mb_strtolower($normalized);
+
+        return preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+    }
+
+    /**
      * @return array{routeName: string|null, totalWeightKg: float|null}
      */
     private function extractRouteHeader(string $text): array
@@ -370,8 +487,10 @@ class RoutePdfImportService
     {
         return str_starts_with($line, 'PosKunde')
             || str_starts_with($line, 'Seite ')
+            || str_starts_with($line, 'Zubehör')
             || str_starts_with($line, 'Powered by')
-            || str_starts_with($line, '+++');
+            // Pure +++ separators only — "+++ Tel. Avis … +++" is a remark line.
+            || 1 === preg_match('/^\+{3,}$/u', $line);
     }
 
     private function isPositionLine(string $line, string $section): bool
@@ -459,7 +578,8 @@ class RoutePdfImportService
     private function isRemarkLine(string $line): bool
     {
         return str_contains($line, 'Tel. Avis')
-            || str_starts_with($line, 'TAUSCH');
+            || str_starts_with($line, 'TAUSCH')
+            || str_starts_with($line, '+++');
     }
 
     /**
@@ -495,8 +615,15 @@ class RoutePdfImportService
             return;
         }
 
-        $current['products'][] = trim(preg_replace('/\s+/u', ' ', (string) $current['productBuffer']) ?? '');
+        $product = trim(preg_replace('/\s+/u', ' ', (string) $current['productBuffer']) ?? '');
         $current['productBuffer'] = null;
+
+        // Import products always start with a quantity like "1 x …" / "2 x …".
+        if (!$this->isProductStart($product)) {
+            return;
+        }
+
+        $current['products'][] = $product;
     }
 
     /**
@@ -509,7 +636,7 @@ class RoutePdfImportService
      *     email: string|null,
      *     address: string,
      *     weightKg: float|null,
-     *     comment: string|null,
+     *     comments: list<string>,
      *     products: list<string>
      * }
      */
@@ -532,26 +659,24 @@ class RoutePdfImportService
         /** @var list<string> $products */
         $products = array_values(array_filter(
             $current['products'],
-            static fn ($p): bool => \is_string($p) && '' !== trim($p),
+            fn ($p): bool => \is_string($p) && '' !== trim($p) && $this->isProductStart(trim($p)),
         ));
 
         $weightKg = isset($current['weightKg']) && is_numeric($current['weightKg'])
             ? (float) $current['weightKg']
             : null;
 
-        $commentParts = [];
+        // Each remark line is a separate comment (do not join multi-line remarks).
+        $comments = [];
         foreach ($current['commentParts'] ?? [] as $part) {
             if (!\is_string($part)) {
                 continue;
             }
             $value = trim($part);
             if ('' !== $value) {
-                $commentParts[] = $value;
+                $comments[] = $value;
             }
         }
-        $comment = [] !== $commentParts
-            ? trim(preg_replace('/\s+/u', ' ', implode(' ', $commentParts)) ?? '')
-            : '';
 
         return [
             'position' => $current['position'],
@@ -560,9 +685,46 @@ class RoutePdfImportService
             'email' => $email,
             'address' => $address,
             'weightKg' => $weightKg,
-            'comment' => '' !== $comment ? $comment : null,
+            'comments' => $comments,
             'products' => $products,
         ];
+    }
+
+    /**
+     * @param list<string> $texts
+     *
+     * @return list<array{id: string, text: string, color: string}>
+     */
+    private function buildImportComments(array $texts): array
+    {
+        $comments = [];
+        $index = 0;
+        foreach ($texts as $text) {
+            if (!\is_string($text)) {
+                continue;
+            }
+            $value = trim($text);
+            if ('' === $value) {
+                continue;
+            }
+
+            if (0 === $index) {
+                $color = str_starts_with(mb_strtoupper($value), 'TAUSCH')
+                    ? 'red'
+                    : 'blue';
+            } else {
+                $color = DeliveryOrder::COMMENT_COLOR_DEFAULT;
+            }
+
+            $comments[] = [
+                'id' => DeliveryOrder::newCommentId(),
+                'text' => $value,
+                'color' => $color,
+            ];
+            ++$index;
+        }
+
+        return $comments;
     }
 
     /**

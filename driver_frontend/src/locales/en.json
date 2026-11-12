@@ -79,8 +79,13 @@
     "refuse": "Refuse delivery",
     "delivered": "Delivered",
     "refused": "Refused",
+    "exchange": "Exchange",
     "products": "Products",
+    "accessories": "Accessories",
     "noProducts": "No products for this stop",
+    "courierComment": "Courier comment",
+    "courierCommentPlaceholder": "Add a comment for this stop…",
+    "courierCommentEmpty": "No courier comment",
     "chooseTitle": "Confirm delivery",
     "chooseSubtitle": "Choose how to prove the delivery",
     "refuseTitle": "Refuse delivery?",
@@ -107,6 +112,18 @@
   "errors": {
     "invalidCredentials": "Invalid login or password",
     "accountDisabled": "Account disabled",
-    "sessionExpired": "Session expired"
+    "sessionExpired": "Session expired",
+    "requestFailed": "Request failed"
+  },
+  "update": {
+    "title": "Update available",
+    "subtitle": "A new version ({remote}) is available. You have {local}.",
+    "required": "This update is required to continue.",
+    "confirm": "Update now",
+    "later": "Later",
+    "updating": "Updating…",
+    "downloading": "Downloading… {percent}%",
+    "failed": "Could not download or install the update",
+    "permissionDenied": "Allow installing apps from this source, then try again"
   }
 }

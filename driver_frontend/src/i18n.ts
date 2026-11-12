@@ -38,7 +38,11 @@ export function setLocale(locale: AppLocale): void {
   setStoredLocale(locale);
 }
 
-export function translateApiError(message: string, t: (key: string) => string): string {
+export function translateApiError(
+  message: string,
+  t: (key: string) => string,
+  fallbackKey = "errors.requestFailed",
+): string {
   const normalized = message.trim().toLowerCase();
 
   if (
@@ -49,8 +53,15 @@ export function translateApiError(message: string, t: (key: string) => string): 
     return t("errors.invalidCredentials");
   }
 
-  if (normalized.includes("отключена") || normalized.includes("disabled")) {
+  if (normalized.includes("отключена") || normalized.includes("account disabled")) {
     return t("errors.accountDisabled");
+  }
+
+  if (
+    normalized.includes("сессия истекла") ||
+    normalized.includes("session expired")
+  ) {
+    return t("errors.sessionExpired");
   }
 
   if (
@@ -70,12 +81,31 @@ export function translateApiError(message: string, t: (key: string) => string): 
 
   if (
     normalized.includes("укажите новый пароль") ||
+    normalized.includes("please enter a new password") ||
     normalized.includes("new password")
   ) {
     return t("password.tooShort");
   }
 
-  return message || t("login.failed");
+  if (
+    normalized.includes("actions are only allowed on today's route") ||
+    normalized.includes("today's route")
+  ) {
+    return t("routes.todayOnlyHint");
+  }
+
+  if (
+    normalized.includes("route must be started") ||
+    normalized.includes("start the route")
+  ) {
+    return t("routes.startRequired");
+  }
+
+  if (normalized.includes("ошибка запроса") || normalized.includes("request failed")) {
+    return t(fallbackKey);
+  }
+
+  return t(fallbackKey);
 }
 
 export default i18n;

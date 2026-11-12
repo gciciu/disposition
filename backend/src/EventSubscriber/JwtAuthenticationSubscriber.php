@@ -59,14 +59,10 @@ class JwtAuthenticationSubscriber implements EventSubscriberInterface
 
     public function onAuthenticationFailure(AuthenticationFailureEvent $event): void
     {
-        $message = $event->getException()->getMessageKey()
-            ?: 'Неверный логин или пароль';
-
-        if (str_contains(strtolower($message), 'отключена')) {
-            $message = 'Учётная запись отключена';
-        } else {
-            $message = 'Неверный логин или пароль';
-        }
+        $raw = strtolower($event->getException()->getMessageKey() ?: '');
+        $message = str_contains($raw, 'disabled') || str_contains($raw, 'отключена')
+            ? 'Account disabled'
+            : 'Invalid login or password';
 
         $event->setResponse(new JsonResponse([
             'code' => 401,

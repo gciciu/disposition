@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
-import { mdiTruckDelivery, mdiPlus, mdiEye, mdiTrashCan } from '@mdi/js'
+import { mdiTruckDelivery, mdiPlus, mdiEye, mdiTrashCan, mdiContentCopy, mdiAndroid } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
 import CardBoxModal from '@/components/CardBoxModal.vue'
@@ -13,6 +13,7 @@ import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.
 import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseLevel from '@/components/BaseLevel.vue'
+import BaseIcon from '@/components/BaseIcon.vue'
 import api from '@/api.js'
 
 const { t } = useI18n()
@@ -23,6 +24,17 @@ const couriers = ref([])
 const loading = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
+const appRelease = ref(null)
+
+const downloadPageUrl = computed(() => {
+  if (appRelease.value?.downloadPageUrl) {
+    return appRelease.value.downloadPageUrl
+  }
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/download`
+  }
+  return '/download'
+})
 
 const isDeleteModalActive = computed({
   get: () => !!deleteTarget.value,
@@ -42,6 +54,24 @@ const loadCouriers = async () => {
     toast.error(e.response?.data?.error || t('couriers.loadFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+const loadAppRelease = async () => {
+  try {
+    const { data } = await api.get('/api/driver/app-version')
+    appRelease.value = data
+  } catch {
+    appRelease.value = null
+  }
+}
+
+const copyDownloadLink = async () => {
+  try {
+    await navigator.clipboard.writeText(downloadPageUrl.value)
+    toast.success(t('couriers.appLinkCopied'))
+  } catch {
+    toast.error(t('couriers.appLinkCopyFailed'))
   }
 }
 
@@ -77,7 +107,10 @@ const confirmDelete = async () => {
   }
 }
 
-onMounted(loadCouriers)
+onMounted(() => {
+  loadCouriers()
+  loadAppRelease()
+})
 </script>
 
 <template>
@@ -91,6 +124,51 @@ onMounted(loadCouriers)
           :to="{ name: 'courier-new' }"
         />
       </SectionTitleLineWithButton>
+
+      <CardBox class="mb-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="flex gap-3">
+            <BaseIcon :path="mdiAndroid" class="text-blue-600" size="24" />
+            <div>
+              <p class="font-semibold">{{ t('couriers.appDownloadTitle') }}</p>
+              <p class="text-sm text-gray-500 dark:text-slate-400">
+                {{ t('couriers.appDownloadHelp') }}
+              </p>
+              <p class="mt-2 break-all text-sm text-blue-700 dark:text-blue-300">
+                {{ downloadPageUrl }}
+              </p>
+              <p
+                v-if="appRelease"
+                class="mt-1 text-xs text-gray-500 dark:text-slate-400"
+              >
+                {{
+                  appRelease.apkAvailable
+                    ? t('couriers.appVersion', { version: appRelease.versionName })
+                    : t('couriers.appNotPublished')
+                }}
+              </p>
+            </div>
+          </div>
+          <BaseButtons type="justify-start sm:justify-end" no-wrap>
+            <BaseButton
+              :label="t('couriers.copyAppLink')"
+              :icon="mdiContentCopy"
+              color="info"
+              outline
+              small
+              @click="copyDownloadLink"
+            />
+            <BaseButton
+              :label="t('couriers.openAppPage')"
+              :icon="mdiAndroid"
+              color="info"
+              small
+              :href="downloadPageUrl"
+              target="_blank"
+            />
+          </BaseButtons>
+        </div>
+      </CardBox>
 
       <CardBox v-if="!loading && couriers.length === 0">
         <CardBoxComponentEmpty />

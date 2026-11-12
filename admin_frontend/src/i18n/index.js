@@ -39,4 +39,29 @@ export function setLocale(locale) {
   setStoredLocale(locale)
 }
 
+export function translateApiError(message, fallbackKey = 'errors.requestFailed') {
+  const normalized = String(message || '')
+    .trim()
+    .toLowerCase()
+  const t = i18n.global.t
+
+  if (
+    normalized.includes('неверный логин') ||
+    normalized.includes('invalid login') ||
+    normalized.includes('invalid credentials')
+  ) {
+    return t('errors.invalidCredentials')
+  }
+
+  if (normalized.includes('отключена') || normalized.includes('account disabled')) {
+    return t('errors.accountDisabled')
+  }
+
+  if (normalized.includes('сессия истекла') || normalized.includes('session expired')) {
+    return t('login.sessionExpired')
+  }
+
+  return t(fallbackKey)
+}
+
 export default i18n

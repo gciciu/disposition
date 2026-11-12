@@ -14,13 +14,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   back: [];
-  confirm: [deliveredProductIndexes: number[]];
-  refuse: [];
+  confirm: [payload: { deliveredProductIndexes: number[]; courierComment: string }];
+  refuse: [courierComment: string];
 }>();
 
 const { t } = useI18n();
 
 const selected = ref<Set<number>>(new Set());
+const courierComment = ref("");
 
 const isDelivered = computed(() => props.order.status === "delivered");
 const isRefused = computed(() => props.order.status === "refused");
@@ -62,7 +63,40 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => [props.order.id, props.order.courierComment] as const,
+  () => {
+    courierComment.value = props.order.courierComment ?? "";
+  },
+  { immediate: true },
+);
+
 const isChecked = (index: number) => selected.value.has(index);
+
+const accessoryIndexSet = computed(
+  () =>
+    new Set(
+      (props.order.accessoryProductIndexes ?? [])
+        .map((index) => Number(index))
+        .filter((index) => Number.isInteger(index) && index >= 0),
+    ),
+);
+
+const regularProducts = computed(() => {
+  const products = props.order.products ?? [];
+  const accessories = accessoryIndexSet.value;
+  return products
+    .map((product, index) => ({ product, index }))
+    .filter(({ index }) => !accessories.has(index));
+});
+
+const accessoryProducts = computed(() => {
+  const products = props.order.products ?? [];
+  const accessories = accessoryIndexSet.value;
+  return products
+    .map((product, index) => ({ product, index }))
+    .filter(({ index }) => accessories.has(index));
+});
 
 const productBackgroundStyle = (index: number) => {
   const color = props.order.productBackgroundColors?.[index];
@@ -93,17 +127,17 @@ const onConfirm = () => {
   if (actionsLocked.value) {
     return;
   }
-  emit(
-    "confirm",
-    [...selected.value].sort((a, b) => a - b),
-  );
+  emit("confirm", {
+    deliveredProductIndexes: [...selected.value].sort((a, b) => a - b),
+    courierComment: courierComment.value.trim(),
+  });
 };
 
 const onRefuse = () => {
   if (actionsLocked.value) {
     return;
   }
-  emit("refuse");
+  emit("refuse", courierComment.value.trim());
 };
 
 const onCall = (event: Event) => {
@@ -142,13 +176,18 @@ const onCall = (event: Event) => {
       <div class="stop-card__body">
         <div class="stop-card__heading">
           <div class="stop-card__name">{{ order.clientName }}</div>
-          <span
-            v-if="isClosed"
-            class="stop-card__badge"
-            :class="{ 'stop-card__badge--refused': isRefused }"
-          >
-            {{ statusLabel }}
-          </span>
+          <div class="stop-card__badges">
+            <span v-if="order.isExchange" class="stop-card__badge stop-card__badge--exchange">
+              {{ t("delivery.exchange") }}
+            </span>
+            <span
+              v-if="isClosed"
+              class="stop-card__badge"
+              :class="{ 'stop-card__badge--refused': isRefused }"
+            >
+              {{ statusLabel }}
+            </span>
+          </div>
         </div>
         <a
           v-if="order.phone"
@@ -164,11 +203,14 @@ const onCall = (event: Event) => {
 
     <section class="product-panel">
       <h2 class="product-panel__title">{{ t("delivery.products") }}</h2>
-      <p v-if="!order.products?.length" class="product-panel__empty">
+      <p
+        v-if="!regularProducts.length && !accessoryProducts.length"
+        class="product-panel__empty"
+      >
         {{ t("delivery.noProducts") }}
       </p>
-      <ul v-else class="product-list">
-        <li v-for="(product, idx) in order.products" :key="idx">
+      <ul v-else-if="regularProducts.length" class="product-list">
+        <li v-for="{ product, index: idx } in regularProducts" :key="idx">
           <label
             class="product-check"
             :class="{
@@ -190,6 +232,50 @@ const onCall = (event: Event) => {
           </label>
         </li>
       </ul>
+    </section>
+
+    <section v-if="accessoryProducts.length" class="product-panel">
+      <h2 class="product-panel__title">{{ t("delivery.accessories") }}</h2>
+      <ul class="product-list">
+        <li v-for="{ product, index: idx } in accessoryProducts" :key="`acc-${idx}`">
+          <label
+            class="product-check"
+            :class="{
+              'product-check--done': isDelivered && isChecked(idx),
+              'product-check--missed': isClosed && !isChecked(idx),
+              'product-check--disabled': actionsLocked,
+            }"
+            :style="productBackgroundStyle(idx)"
+          >
+            <input
+              class="product-check__input"
+              type="checkbox"
+              :checked="isChecked(idx)"
+              :disabled="actionsLocked"
+              @change="toggleProduct(idx)"
+            />
+            <span class="product-check__box" aria-hidden="true" />
+            <span class="product-check__label">{{ product }}</span>
+          </label>
+        </li>
+      </ul>
+    </section>
+
+    <section class="product-panel">
+      <h2 class="product-panel__title">{{ t("delivery.courierComment") }}</h2>
+      <textarea
+        v-if="!isClosed && !readOnly"
+        v-model="courierComment"
+        class="order-stop__comment"
+        rows="3"
+        maxlength="2000"
+        :disabled="actionsLocked"
+        :placeholder="t('delivery.courierCommentPlaceholder')"
+      />
+      <p v-else-if="courierComment" class="order-stop__comment-text">
+        {{ courierComment }}
+      </p>
+      <p v-else class="product-panel__empty">{{ t("delivery.courierCommentEmpty") }}</p>
     </section>
 
     <p v-if="!isClosed && readOnly" class="order-stop__hint">

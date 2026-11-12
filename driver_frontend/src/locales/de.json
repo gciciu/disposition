@@ -79,8 +79,13 @@
     "refuse": "Lieferung ablehnen",
     "delivered": "Zugestellt",
     "refused": "Abgelehnt",
+    "exchange": "Tausch",
     "products": "Artikel",
+    "accessories": "Zubehör",
     "noProducts": "Keine Artikel für diesen Stopp",
+    "courierComment": "Fahrerkommentar",
+    "courierCommentPlaceholder": "Kommentar zu diesem Stopp hinzufügen…",
+    "courierCommentEmpty": "Kein Fahrerkommentar",
     "chooseTitle": "Lieferung bestätigen",
     "chooseSubtitle": "Wählen Sie den Nachweis der Lieferung",
     "refuseTitle": "Lieferung ablehnen?",
@@ -107,6 +112,18 @@
   "errors": {
     "invalidCredentials": "Ungültiger Login oder Passwort",
     "accountDisabled": "Konto deaktiviert",
-    "sessionExpired": "Sitzung abgelaufen"
+    "sessionExpired": "Sitzung abgelaufen",
+    "requestFailed": "Anfrage fehlgeschlagen"
+  },
+  "update": {
+    "title": "Update verfügbar",
+    "subtitle": "Eine neue Version ({remote}) ist verfügbar. Installiert: {local}.",
+    "required": "Dieses Update ist erforderlich, um fortzufahren.",
+    "confirm": "Jetzt aktualisieren",
+    "later": "Später",
+    "updating": "Aktualisierung…",
+    "downloading": "Download… {percent}%",
+    "failed": "Update konnte nicht heruntergeladen oder installiert werden",
+    "permissionDenied": "Erlauben Sie die Installation aus dieser Quelle und versuchen Sie es erneut"
   }
 }

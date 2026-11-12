@@ -28,6 +28,25 @@ class DeliveryConfirmationPdfService
         return $this->builder->build($order, $overrides);
     }
 
+    public function buildSampleDocument(?string $customerEmail = null): DeliveryConfirmationPdfDocument
+    {
+        return $this->builder->buildSample($customerEmail);
+    }
+
+    /**
+     * @return array{document: DeliveryConfirmationPdfDocument, pdf: string, filename: string}
+     */
+    public function generateSamplePdf(?string $customerEmail = null): array
+    {
+        $document = $this->buildSampleDocument($customerEmail);
+
+        return [
+            'document' => $document,
+            'pdf' => $this->renderer->renderPdf($document),
+            'filename' => $this->renderer->suggestedFilename($document),
+        ];
+    }
+
     /**
      * @param array<string, mixed> $overrides
      */

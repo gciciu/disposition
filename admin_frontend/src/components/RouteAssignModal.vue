@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
+import { mdiFilePdfBox, mdiUpload } from '@mdi/js'
 import CardBoxModal from '@/components/CardBoxModal.vue'
 import CardBoxModalBody from '@/components/CardBoxModalBody.vue'
 import CardBoxComponentFooter from '@/components/CardBoxComponentFooter.vue'
@@ -9,6 +10,7 @@ import FormField from '@/components/FormField.vue'
 import FormControl from '@/components/FormControl.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
+import BaseIcon from '@/components/BaseIcon.vue'
 import WeekdayDatePicker from '@/components/WeekdayDatePicker.vue'
 import api from '@/api.js'
 
@@ -45,6 +47,8 @@ const scheduledDate = ref(null)
 const scheduledStartTime = ref('')
 const selectedFile = ref(null)
 const fileInput = ref(null)
+const isDragging = ref(false)
+const dragDepth = ref(0)
 const occupiedDays = ref([])
 const saving = ref(false)
 const replaceConfirmOpen = ref(false)
@@ -148,6 +152,8 @@ const loadSchedule = async () => {
 
 const resetForm = () => {
   selectedFile.value = null
+  isDragging.value = false
+  dragDepth.value = 0
   if (fileInput.value) {
     fileInput.value.value = ''
   }
@@ -306,8 +312,82 @@ const confirmReplace = async () => {
   await submitImport(true)
 }
 
+const isPdfFile = (file) => {
+  if (!file) {
+    return false
+  }
+  const byType = file.type === 'application/pdf'
+  const byName = /\.pdf$/i.test(file.name || '')
+  return byType || byName
+}
+
+const setSelectedFile = (file) => {
+  if (!file) {
+    selectedFile.value = null
+    if (fileInput.value) {
+      fileInput.value.value = ''
+    }
+    return
+  }
+  if (!isPdfFile(file)) {
+    toast.error(t('deliveryRoutes.pdfOnly'))
+    return
+  }
+  selectedFile.value = file
+}
+
 const onFileChange = (event) => {
-  selectedFile.value = event.target.files?.[0] ?? null
+  setSelectedFile(event.target.files?.[0] ?? null)
+}
+
+const onDragEnter = (event) => {
+  if (saving.value) {
+    return
+  }
+  event.preventDefault()
+  dragDepth.value += 1
+  isDragging.value = true
+}
+
+const onDragOver = (event) => {
+  if (saving.value) {
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  isDragging.value = true
+}
+
+const onDragLeave = (event) => {
+  event.preventDefault()
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+  if (dragDepth.value === 0) {
+    isDragging.value = false
+  }
+}
+
+const onDrop = (event) => {
+  if (saving.value) {
+    return
+  }
+  event.preventDefault()
+  dragDepth.value = 0
+  isDragging.value = false
+  const file = event.dataTransfer?.files?.[0] ?? null
+  setSelectedFile(file)
+}
+
+const openFilePicker = () => {
+  if (saving.value) {
+    return
+  }
+  fileInput.value?.click()
+}
+
+const clearSelectedFile = () => {
+  setSelectedFile(null)
 }
 </script>
 
@@ -329,14 +409,61 @@ const onFileChange = (event) => {
       </p>
 
       <FormField v-if="!isEdit" :label="t('deliveryRoutes.pdfFile')">
-        <input
-          ref="fileInput"
-          type="file"
-          accept="application/pdf,.pdf"
-          class="block w-full text-sm"
-          :disabled="saving"
-          @change="onFileChange"
-        />
+        <div
+          class="relative flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors"
+          :class="[
+            saving ? 'cursor-not-allowed opacity-60' : '',
+            isDragging
+              ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950/40'
+              : selectedFile
+                ? 'border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-950/30'
+                : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50/60 dark:border-slate-600 dark:bg-slate-800/60 dark:hover:border-blue-400',
+          ]"
+          @click="openFilePicker"
+          @dragenter="onDragEnter"
+          @dragover="onDragOver"
+          @dragleave="onDragLeave"
+          @drop="onDrop"
+        >
+          <input
+            ref="fileInput"
+            type="file"
+            accept="application/pdf,.pdf"
+            class="hidden"
+            :disabled="saving"
+            @change="onFileChange"
+            @click.stop
+          />
+          <BaseIcon
+            :path="selectedFile ? mdiFilePdfBox : mdiUpload"
+            :size="32"
+            class="text-gray-500 dark:text-slate-300"
+          />
+          <template v-if="selectedFile">
+            <p class="max-w-full truncate text-sm font-medium text-gray-800 dark:text-slate-100">
+              {{ selectedFile.name }}
+            </p>
+            <p class="text-xs text-gray-500 dark:text-slate-400">
+              {{ t('deliveryRoutes.dropReplaceHint') }}
+            </p>
+            <button
+              type="button"
+              class="mt-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              :disabled="saving"
+              @click.stop="clearSelectedFile"
+            >
+              {{ t('deliveryRoutes.clearFile') }}
+            </button>
+          </template>
+          <template v-else>
+            <p class="text-sm font-medium text-gray-700 dark:text-slate-200">
+              {{ isDragging ? t('deliveryRoutes.dropHere') : t('deliveryRoutes.dropOrBrowse') }}
+            </p>
+            <p class="text-xs text-gray-500 dark:text-slate-400">
+              {{ t('deliveryRoutes.pdfOnlyHint') }}
+            </p>
+          </template>
+        </div>
       </FormField>
 
       <FormField :label="t('deliveryRoutes.courier')" :help="t('deliveryRoutes.courierHelp')">

@@ -1,0 +1,7 @@
+# Downloaded binary (see scripts/download-mailpit.ps1)
+/mailpit.exe
+/*.tar.gz
+/*.zip
+
+# Runtime
+/*.log

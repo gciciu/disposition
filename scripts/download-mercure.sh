@@ -1,8 +1,41 @@
 #!/usr/bin/env bash
 # Download the official Mercure hub binary into mercure/
+# Works from: scripts/ inside the repo, project root, or the client folder
+# that contains a cloned project subfolder (e.g. ./delivery/).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+resolve_project_root() {
+  local base="$1" preferred="${DELIVERY_DIR_NAME:-delivery}" d
+  if [[ -f "$base/backend/composer.json" ]]; then
+    printf '%s\n' "$base"
+    return 0
+  fi
+  if [[ -f "$base/../backend/composer.json" ]]; then
+    (cd "$base/.." && pwd)
+    return 0
+  fi
+  if [[ -f "$base/$preferred/backend/composer.json" ]]; then
+    printf '%s\n' "$base/$preferred"
+    return 0
+  fi
+  for d in "$base"/*/ ; do
+    [[ -d "$d" ]] || continue
+    if [[ -f "${d}backend/composer.json" ]]; then
+      (cd "$d" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+
+ROOT="$(resolve_project_root "$SCRIPT_DIR")" || {
+  echo "ERROR: cannot find project root (backend/composer.json)." >&2
+  echo "Run from the project folder, scripts/, or the client folder that contains it." >&2
+  exit 1
+}
+
 DIR="$ROOT/mercure"
 VERSION="${MERCURE_VERSION:-v1.1.5}"
 ARCH="$(uname -m)"
@@ -29,5 +62,6 @@ if [[ -z "$BIN" ]]; then
   exit 1
 fi
 
+mkdir -p "$DIR"
 install -m 755 "$BIN" "$DIR/mercure"
 echo "Installed $DIR/mercure ($VERSION)"

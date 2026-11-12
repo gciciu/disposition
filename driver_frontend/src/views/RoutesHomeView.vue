@@ -25,6 +25,7 @@ import ReportDelaySheet from "../components/ReportDelaySheet.vue";
 import SignaturePadModal from "../components/SignaturePadModal.vue";
 import { GeolocationError, getCurrentPosition } from "../geolocation";
 import { toProofJpeg } from "../imageProof";
+import { translateApiError } from "../i18n";
 import { withoutCountry } from "../utils/address";
 
 const { t, locale } = useI18n();
@@ -46,6 +47,7 @@ const showClosed = ref(false);
 const confirmOrder = ref<RouteOrder | null>(null);
 const refuseOrder = ref<RouteOrder | null>(null);
 const pendingDeliveredIndexes = ref<number[]>([]);
+const pendingCourierComment = ref("");
 const showSignature = ref(false);
 const showStartConfirm = ref(false);
 const showFinishConfirm = ref(false);
@@ -202,7 +204,9 @@ const loadRoutes = async () => {
     }
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("routes.loadFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "routes.loadFailed")
+        : t("routes.loadFailed");
   } finally {
     loading.value = false;
   }
@@ -222,7 +226,9 @@ const openRoute = async (id: number) => {
     showClosed.value = Boolean(data.route.completedAt);
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("routes.loadDetailFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "routes.loadDetailFailed")
+        : t("routes.loadDetailFailed");
     selectedId.value = null;
   } finally {
     loadingDetail.value = false;
@@ -295,7 +301,9 @@ const startRoute = async () => {
           : t("routes.locationFailed");
     } else {
       error.value =
-        e instanceof ApiError ? e.message : t("routes.startFailed");
+        e instanceof ApiError
+          ? translateApiError(e.message, t, "routes.startFailed")
+          : t("routes.startFailed");
     }
     showStartConfirm.value = false;
   } finally {
@@ -366,7 +374,9 @@ const continueRoute = async () => {
     await openRoute(data.route.id);
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("routes.continueFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "routes.continueFailed")
+        : t("routes.continueFailed");
     continueRouteTarget.value = null;
   } finally {
     continuing.value = false;
@@ -397,31 +407,45 @@ const finishRoute = async () => {
     showFinishConfirm.value = false;
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("routes.finishFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "routes.finishFailed")
+        : t("routes.finishFailed");
     showFinishConfirm.value = false;
   } finally {
     finishing.value = false;
   }
 };
 
-const openConfirm = (order: RouteOrder, deliveredProductIndexes: number[]) => {
+const openConfirm = (
+  order: RouteOrder,
+  deliveredProductIndexes: number[],
+  courierComment: string,
+) => {
   if (isClosed(order) || submitting.value || !deliveryActionsEnabled.value) {
     return;
   }
   error.value = "";
   refuseOrder.value = null;
   pendingDeliveredIndexes.value = deliveredProductIndexes;
+  pendingCourierComment.value = courierComment;
   confirmOrder.value = order;
 };
 
-const onOrderConfirm = (deliveredProductIndexes: number[]) => {
+const onOrderConfirm = (payload: {
+  deliveredProductIndexes: number[];
+  courierComment: string;
+}) => {
   if (!selectedOrder.value) {
     return;
   }
-  openConfirm(selectedOrder.value, deliveredProductIndexes);
+  openConfirm(
+    selectedOrder.value,
+    payload.deliveredProductIndexes,
+    payload.courierComment,
+  );
 };
 
-const openRefuse = () => {
+const openRefuse = (courierComment: string) => {
   const order = selectedOrder.value;
   if (!order || isClosed(order) || submitting.value || !deliveryActionsEnabled.value) {
     return;
@@ -429,6 +453,7 @@ const openRefuse = () => {
   error.value = "";
   confirmOrder.value = null;
   showSignature.value = false;
+  pendingCourierComment.value = courierComment;
   refuseOrder.value = order;
 };
 
@@ -439,6 +464,7 @@ const closeConfirm = () => {
   confirmOrder.value = null;
   showSignature.value = false;
   pendingDeliveredIndexes.value = [];
+  pendingCourierComment.value = "";
 };
 
 const closeRefuse = () => {
@@ -446,6 +472,7 @@ const closeRefuse = () => {
     return;
   }
   refuseOrder.value = null;
+  pendingCourierComment.value = "";
 };
 
 const openDelaySheet = () => {
@@ -456,6 +483,7 @@ const openDelaySheet = () => {
   confirmOrder.value = null;
   refuseOrder.value = null;
   showSignature.value = false;
+  pendingCourierComment.value = "";
   showDelaySheet.value = true;
 };
 
@@ -488,7 +516,9 @@ const submitDelay = async (minutes: number) => {
     showDelaySheet.value = false;
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("delivery.delayFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "delivery.delayFailed")
+        : t("delivery.delayFailed");
     showDelaySheet.value = false;
   } finally {
     submitting.value = false;
@@ -537,15 +567,19 @@ const submitProof = async (
       file,
       filename,
       pendingDeliveredIndexes.value,
+      pendingCourierComment.value,
     );
     applyRouteMutation(data.order, data.route);
     confirmOrder.value = null;
     showSignature.value = false;
     pendingDeliveredIndexes.value = [];
+    pendingCourierComment.value = "";
     selectedOrderId.value = null;
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("delivery.submitFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "delivery.submitFailed")
+        : t("delivery.submitFailed");
   } finally {
     submitting.value = false;
   }
@@ -583,13 +617,20 @@ const submitRefuse = async () => {
   error.value = "";
 
   try {
-    const data = await refuseOrderRequest(routeId, order.id);
+    const data = await refuseOrderRequest(
+      routeId,
+      order.id,
+      pendingCourierComment.value,
+    );
     applyRouteMutation(data.order, data.route);
     refuseOrder.value = null;
+    pendingCourierComment.value = "";
     selectedOrderId.value = null;
   } catch (e) {
     error.value =
-      e instanceof ApiError ? e.message : t("delivery.refuseFailed");
+      e instanceof ApiError
+        ? translateApiError(e.message, t, "delivery.refuseFailed")
+        : t("delivery.refuseFailed");
   } finally {
     submitting.value = false;
   }
@@ -733,7 +774,7 @@ watch(
           </a>
           <button
             v-if="deliveryActionsEnabled"
-            class="btn btn--secondary btn--compact"
+            class="btn btn--danger btn--compact"
             type="button"
             :disabled="submitting || starting || finishing"
             @click="openDelaySheet"
@@ -807,12 +848,20 @@ watch(
               <div class="stop-card__body">
                 <div class="stop-card__heading">
                   <div class="stop-card__name">{{ order.clientName }}</div>
-                  <span
-                    class="stop-card__badge"
-                    :class="{ 'stop-card__badge--refused': isRefused(order) }"
-                  >
-                    {{ closedStatusLabel(order) }}
-                  </span>
+                  <div class="stop-card__badges">
+                    <span
+                      v-if="order.isExchange"
+                      class="stop-card__badge stop-card__badge--exchange"
+                    >
+                      {{ t("delivery.exchange") }}
+                    </span>
+                    <span
+                      class="stop-card__badge"
+                      :class="{ 'stop-card__badge--refused': isRefused(order) }"
+                    >
+                      {{ closedStatusLabel(order) }}
+                    </span>
+                  </div>
                 </div>
                 <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
                   {{ order.phone }}
@@ -859,6 +908,12 @@ watch(
             <div class="stop-card__body">
               <div class="stop-card__heading">
                 <div class="stop-card__name">{{ order.clientName }}</div>
+                <span
+                  v-if="order.isExchange"
+                  class="stop-card__badge stop-card__badge--exchange"
+                >
+                  {{ t("delivery.exchange") }}
+                </span>
               </div>
               <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
                 {{ order.phone }}

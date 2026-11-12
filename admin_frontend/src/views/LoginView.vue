@@ -13,6 +13,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import LayoutGuest from '@/layouts/LayoutGuest.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import { translateApiError } from '@/i18n'
 import { useAuthStore } from '@/stores/auth.js'
 
 const { t } = useI18n()
@@ -40,11 +41,13 @@ const submit = async () => {
     const target = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/routes'
     await router.push(target)
   } catch (error) {
-    toast.error(
-      error.response?.data?.message ||
-        error.message ||
-        t('login.failed'),
-    )
+    if (error.response?.data?.message) {
+      toast.error(translateApiError(error.response.data.message, 'login.failed'))
+    } else if (error.message) {
+      toast.error(error.message)
+    } else {
+      toast.error(t('login.failed'))
+    }
   } finally {
     isLoading.value = false
   }

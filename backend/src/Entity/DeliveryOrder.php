@@ -110,6 +110,14 @@ class DeliveryOrder
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $deliveredProductIndexes = null;
 
+    /**
+     * Indexes into $products that belong to the PDF "Zubehör" (accessories) table.
+     *
+     * @var list<int>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $accessoryProductIndexes = null;
+
     #[ORM\Column(length: 32, enumType: DeliveryOrderStatus::class)]
     private DeliveryOrderStatus $status = DeliveryOrderStatus::Pending;
 
@@ -124,6 +132,10 @@ class DeliveryOrder
 
     #[ORM\Column(length: 128, nullable: true)]
     private ?string $proofMime = null;
+
+    /** Free-text note entered by the courier at the stop. */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $courierComment = null;
 
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
@@ -511,6 +523,42 @@ class DeliveryOrder
         return $this;
     }
 
+    /**
+     * @return list<int>|null
+     */
+    public function getAccessoryProductIndexes(): ?array
+    {
+        return $this->accessoryProductIndexes;
+    }
+
+    /**
+     * @param list<int>|null $accessoryProductIndexes
+     */
+    public function setAccessoryProductIndexes(?array $accessoryProductIndexes): static
+    {
+        if (null === $accessoryProductIndexes) {
+            $this->accessoryProductIndexes = null;
+
+            return $this;
+        }
+
+        $normalized = [];
+        foreach ($accessoryProductIndexes as $index) {
+            if (!\is_int($index) && !(\is_string($index) && ctype_digit($index))) {
+                continue;
+            }
+            $value = (int) $index;
+            if ($value < 0 || !\array_key_exists($value, $this->products)) {
+                continue;
+            }
+            $normalized[$value] = $value;
+        }
+
+        $this->accessoryProductIndexes = array_values($normalized);
+
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
@@ -576,9 +624,53 @@ class DeliveryOrder
         return $this;
     }
 
+    public function getCourierComment(): ?string
+    {
+        return $this->courierComment;
+    }
+
+    public function setCourierComment(?string $courierComment): static
+    {
+        if (null === $courierComment) {
+            $this->courierComment = null;
+
+            return $this;
+        }
+
+        $trimmed = trim($courierComment);
+        if ('' === $trimmed) {
+            $this->courierComment = null;
+
+            return $this;
+        }
+
+        if (mb_strlen($trimmed) > 2000) {
+            $trimmed = mb_substr($trimmed, 0, 2000);
+        }
+
+        $this->courierComment = $trimmed;
+
+        return $this;
+    }
+
     public function hasProof(): bool
     {
         return null !== $this->proofPath && '' !== $this->proofPath;
+    }
+
+    /**
+     * Exchange stop (TAUSCH) — true when any comment mentions TAUSCH.
+     */
+    public function isExchange(): bool
+    {
+        foreach ($this->comments as $comment) {
+            $text = trim((string) ($comment['text'] ?? ''));
+            if ('' !== $text && false !== mb_stripos($text, 'TAUSCH')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -605,10 +697,13 @@ class DeliveryOrder
      *     products: list<string>,
      *     productBackgroundColors: list<string|null>|null,
      *     deliveredProductIndexes: list<int>|null,
+     *     accessoryProductIndexes: list<int>|null,
      *     status: string,
+     *     isExchange: bool,
      *     completedAt: string|null,
      *     proofType: string|null,
      *     hasProof: bool,
+     *     courierComment: string|null,
      *     createdAt: string
      * }
      */
@@ -641,10 +736,13 @@ class DeliveryOrder
             'products' => $this->products,
             'productBackgroundColors' => $this->productBackgroundColors,
             'deliveredProductIndexes' => $this->deliveredProductIndexes,
+            'accessoryProductIndexes' => $this->accessoryProductIndexes,
             'status' => $this->status->value,
+            'isExchange' => $this->isExchange(),
             'completedAt' => $this->completedAt?->format(\DateTimeInterface::ATOM),
             'proofType' => $this->proofType?->value,
             'hasProof' => $this->hasProof(),
+            'courierComment' => $this->courierComment,
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
         ];
     }

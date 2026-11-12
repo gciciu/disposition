@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
-import { mdiEmailFastOutline } from '@mdi/js'
+import { mdiEmailFastOutline, mdiFileDocumentOutline } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
 import FormField from '@/components/FormField.vue'
@@ -23,6 +23,7 @@ const form = reactive({
 })
 
 const sending = ref(false)
+const sendingConfirmation = ref(false)
 const lastResult = ref(null)
 
 onMounted(() => {
@@ -31,24 +32,44 @@ onMounted(() => {
   }
 })
 
+const recipientPayload = () => ({
+  to: form.to.trim() || undefined,
+})
+
+const applyResult = (data, successKey) => {
+  lastResult.value = data
+  if (data.discarded) {
+    toast.warning(t('emailTest.discarded'))
+  } else {
+    toast.success(t(successKey, { to: data.to }))
+  }
+}
+
 const sendTest = async () => {
   sending.value = true
   lastResult.value = null
 
   try {
-    const { data } = await api.post('/api/admin/email/test', {
-      to: form.to.trim() || undefined,
-    })
-    lastResult.value = data
-    if (data.discarded) {
-      toast.warning(t('emailTest.discarded'))
-    } else {
-      toast.success(t('emailTest.sent', { to: data.to }))
-    }
+    const { data } = await api.post('/api/admin/email/test', recipientPayload())
+    applyResult(data, 'emailTest.sent')
   } catch (e) {
     toast.error(e.response?.data?.error || t('emailTest.failed'))
   } finally {
     sending.value = false
+  }
+}
+
+const sendConfirmation = async () => {
+  sendingConfirmation.value = true
+  lastResult.value = null
+
+  try {
+    const { data } = await api.post('/api/admin/email/test-confirmation', recipientPayload())
+    applyResult(data, 'emailTest.confirmationSent')
+  } catch (e) {
+    toast.error(e.response?.data?.error || t('emailTest.confirmationFailed'))
+  } finally {
+    sendingConfirmation.value = false
   }
 }
 </script>
@@ -58,7 +79,7 @@ const sendTest = async () => {
     <SectionMain>
       <SectionTitleLineWithButton :icon="mdiEmailFastOutline" :title="t('emailTest.title')" main />
 
-      <CardBox is-form @submit.prevent="sendTest">
+      <CardBox>
         <p class="mb-6 text-sm text-gray-500 dark:text-slate-400">
           {{ t('emailTest.description') }}
         </p>
@@ -72,17 +93,32 @@ const sendTest = async () => {
           />
         </FormField>
 
-        <template #footer>
-          <BaseButtons>
-            <BaseButton
-              type="submit"
-              color="info"
-              :label="sending ? t('emailTest.sending') : t('emailTest.send')"
-              :icon="mdiEmailFastOutline"
-              :disabled="sending"
-            />
-          </BaseButtons>
-        </template>
+        <BaseButtons class="mt-6">
+          <BaseButton
+            type="button"
+            color="info"
+            :label="sending ? t('emailTest.sending') : t('emailTest.send')"
+            :icon="mdiEmailFastOutline"
+            :disabled="sending || sendingConfirmation"
+            @click="sendTest"
+          />
+          <BaseButton
+            type="button"
+            color="success"
+            :label="
+              sendingConfirmation
+                ? t('emailTest.confirmationSending')
+                : t('emailTest.sendConfirmation')
+            "
+            :icon="mdiFileDocumentOutline"
+            :disabled="sending || sendingConfirmation"
+            @click="sendConfirmation"
+          />
+        </BaseButtons>
+
+        <p class="mt-4 text-xs text-gray-400 dark:text-slate-500">
+          {{ t('emailTest.confirmationHelp') }}
+        </p>
       </CardBox>
 
       <CardBox v-if="lastResult" class="mt-6">
@@ -92,6 +128,12 @@ const sendTest = async () => {
         </p>
         <p class="mt-1 text-xs text-gray-400 dark:text-slate-500">
           {{ t('emailTest.to') }}: {{ lastResult.to }}
+        </p>
+        <p
+          v-if="lastResult.filename"
+          class="mt-1 text-xs text-gray-400 dark:text-slate-500"
+        >
+          {{ t('emailTest.attachment') }}: {{ lastResult.filename }}
         </p>
       </CardBox>
     </SectionMain>

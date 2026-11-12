@@ -71,7 +71,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(email, password, remember = true) {
-    const { data } = await api.post('/api/login', { email, password, remember })
+    const { data } = await api.post('/api/login', {
+      email: String(email || '').trim().toLowerCase(),
+      password,
+      remember,
+    })
 
     const nextUser = data.user
     const roles = nextUser?.roles || []

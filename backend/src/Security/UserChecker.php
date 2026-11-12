@@ -16,7 +16,7 @@ class UserChecker implements UserCheckerInterface
         }
 
         if (!$user->isActive()) {
-            throw new CustomUserMessageAccountStatusException('Учётная запись отключена');
+            throw new CustomUserMessageAccountStatusException('Account disabled');
         }
     }
 

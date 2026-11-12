@@ -26,7 +26,7 @@ class TokenController extends AbstractController
         if (null === $payload) {
             return $this->json([
                 'code' => Response::HTTP_UNAUTHORIZED,
-                'message' => 'Сессия истекла',
+                'message' => 'Session expired',
             ], Response::HTTP_UNAUTHORIZED);
         }
 

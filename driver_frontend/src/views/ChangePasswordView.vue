@@ -41,9 +41,9 @@ async function submit() {
     await changePassword(form.password, form.passwordConfirmation);
   } catch (err) {
     if (err instanceof ApiError) {
-      error.value = translateApiError(err.message, t);
+      error.value = translateApiError(err.message, t, "password.failed");
     } else if (err instanceof Error) {
-      error.value = translateApiError(err.message, t);
+      error.value = translateApiError(err.message, t, "password.failed");
     } else {
       error.value = t("password.failed");
     }

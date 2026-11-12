@@ -13,8 +13,10 @@ export type LoginResponse = {
   user: AuthUser;
 };
 
+// Prefer 127.0.0.1 over localhost — on Windows localhost can resolve to ::1 while
+// `php -S 127.0.0.1:8080` only accepts IPv4, which breaks login/refresh.
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8080" : "");
 
 const AUTH_KEYS = ["auth_token", "auth_user", "refresh_token"] as const;
 
@@ -95,9 +97,9 @@ async function parseError(response: Response): Promise<string> {
       error?: string;
       detail?: string;
     };
-    return data.message || data.error || data.detail || "Ошибка запроса";
+    return data.message || data.error || data.detail || "Request failed";
   } catch {
-    return "Ошибка запроса";
+    return "Request failed";
   }
 }
 
@@ -205,12 +207,15 @@ export type RouteOrder = {
   products: string[];
   productBackgroundColors?: (string | null)[] | null;
   deliveredProductIndexes: number[] | null;
+  accessoryProductIndexes?: number[] | null;
   travelDurationText: string | null;
   travelDistanceText: string | null;
   status: OrderStatus;
+  isExchange?: boolean;
   completedAt: string | null;
   proofType: ProofType | null;
   hasProof: boolean;
+  courierComment?: string | null;
 };
 
 export type RouteDetail = RouteListItem & {
@@ -251,12 +256,16 @@ export function completeOrderRequest(
   file: Blob,
   filename = "proof.jpg",
   deliveredProductIndexes?: number[],
+  courierComment?: string | null,
 ) {
   const body = new FormData();
   body.append("proofType", proofType);
   body.append("file", file, filename);
   if (deliveredProductIndexes !== undefined) {
     body.append("deliveredProductIndexes", JSON.stringify(deliveredProductIndexes));
+  }
+  if (courierComment != null && courierComment.trim() !== "") {
+    body.append("courierComment", courierComment.trim());
   }
 
   return request<{ order: RouteOrder; route: RouteDetail }>(
@@ -268,10 +277,22 @@ export function completeOrderRequest(
   );
 }
 
-export function refuseOrderRequest(routeId: number, orderId: number) {
+export function refuseOrderRequest(
+  routeId: number,
+  orderId: number,
+  courierComment?: string | null,
+) {
+  const payload: { courierComment?: string } = {};
+  if (courierComment != null && courierComment.trim() !== "") {
+    payload.courierComment = courierComment.trim();
+  }
+
   return request<{ order: RouteOrder; route: RouteDetail }>(
     `/api/driver/routes/${routeId}/orders/${orderId}/refuse`,
-    { method: "POST" },
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
   );
 }
 

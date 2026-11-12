@@ -20,10 +20,17 @@ class EmailService
     /**
      * Sends email synchronously (bypasses Messenger) so callers get immediate errors.
      *
+     * @param list<array{content: string, filename: string, contentType?: string}> $attachments
+     *
      * @return array{to: string, subject: string, discarded: bool}
      */
-    public function send(string $to, string $subject, string $textBody, ?string $htmlBody = null): array
-    {
+    public function send(
+        string $to,
+        string $subject,
+        string $textBody,
+        ?string $htmlBody = null,
+        array $attachments = [],
+    ): array {
         $to = trim($to);
         $subject = trim($subject);
         $textBody = trim($textBody);
@@ -55,6 +62,19 @@ class EmailService
             $email->html($htmlBody);
         }
 
+        foreach ($attachments as $attachment) {
+            $content = $attachment['content'] ?? '';
+            $filename = trim((string) ($attachment['filename'] ?? ''));
+            if ($content === '' || $filename === '') {
+                continue;
+            }
+            $email->attach(
+                $content,
+                $filename,
+                $attachment['contentType'] ?? 'application/octet-stream',
+            );
+        }
+
         try {
             $this->mailerTransport->send($email);
         } catch (TransportExceptionInterface $e) {
@@ -81,6 +101,35 @@ class EmailService
             .'<p>If you received this message, outbound email is configured correctly.</p>';
 
         return $this->send($to, $subject, $text, $html);
+    }
+
+    /**
+     * Sends a sample Lieferbestätigung (HTML body + PDF attachment) for Mailpit / SMTP tests.
+     *
+     * @return array{to: string, subject: string, discarded: bool, filename: string}
+     */
+    public function sendConfirmationSample(string $to, string $pdfBinary, string $filename, string $customerName): array
+    {
+        $subject = 'Lieferbestätigung — '.$customerName.' (Test)';
+        $text = "Guten Tag,\n\n"
+            ."anbei erhalten Sie die Lieferbestätigung für Ihre Lieferung (Testdaten).\n\n"
+            ."Mit freundlichen Grüßen\n"
+            ."MySpiegel-Lieferservice\n";
+
+        $html = '<p>Guten Tag,</p>'
+            .'<p>anbei erhalten Sie die <strong>Lieferbestätigung</strong> für Ihre Lieferung '
+            .'(Testdaten).</p>'
+            .'<p>Mit freundlichen Grüßen<br>MySpiegel-Lieferservice</p>';
+
+        $result = $this->send($to, $subject, $text, $html, [
+            [
+                'content' => $pdfBinary,
+                'filename' => $filename,
+                'contentType' => 'application/pdf',
+            ],
+        ]);
+
+        return $result + ['filename' => $filename];
     }
 
     public function isNullTransport(): bool

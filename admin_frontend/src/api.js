@@ -1,7 +1,9 @@
 import axios from 'axios'
 
+// Prefer 127.0.0.1 over localhost — on Windows localhost can resolve to ::1 while
+// `php -S 127.0.0.1:8080` only accepts IPv4, which breaks login/refresh.
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8080' : '')
 
 const raw = axios.create({
   baseURL: API_BASE_URL,
@@ -118,7 +120,11 @@ function refreshOnce() {
 
 function isAccessTokenExpired(token) {
   try {
-    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    let part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const pad = part.length % 4
+    if (pad) {
+      part += '='.repeat(4 - pad)
+    }
     const json = decodeURIComponent(
       atob(part)
         .split('')

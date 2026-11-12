@@ -58,6 +58,11 @@
     "sessionExpired": "Your session has expired. Please log in again.",
     "adminOnly": "Admin panel access is restricted to administrators"
   },
+  "errors": {
+    "invalidCredentials": "Invalid login or password",
+    "accountDisabled": "Account disabled",
+    "requestFailed": "Request failed"
+  },
   "dashboard": {
     "overview": "Overview",
     "clients": "Clients",
@@ -139,6 +144,12 @@
     "scheduledStartTime": "Start time",
     "scheduledStartTimeHelp": "Optional planned start time",
     "pdfFile": "Route PDF",
+    "dropOrBrowse": "Drag & drop a PDF here, or click to browse",
+    "dropHere": "Drop the PDF here",
+    "dropReplaceHint": "Drop another PDF or click to replace",
+    "clearFile": "Remove file",
+    "pdfOnly": "Please select a PDF file",
+    "pdfOnlyHint": "PDF only",
     "weekdayShort": {
       "mon": "Mo",
       "tue": "Tu",
@@ -157,7 +168,6 @@
       "sat": "Saturday",
       "sun": "Sunday"
     },
-    "scheduledDateWithWeekday": "{date} ({weekday})",
     "calendarLegendOccupied": "Route planned",
     "calendarLegendStarted": "Route started",
     "replaceConfirmTitle": "Replace existing route?",
@@ -172,6 +182,8 @@
     "phone": "Phone",
     "address": "Address",
     "comment": "Comment",
+    "courierComment": "Courier comment",
+    "courierCommentEmpty": "No courier comment",
     "emailNotify": "Email",
     "emailNotifyTitle": "Notify {email}",
     "emailNotifyMissing": "No email address",
@@ -199,6 +211,7 @@
       "gray": "Gray"
     },
     "products": "Products",
+    "accessories": "Accessories",
     "weight": "Weight",
     "weightValue": "{value} kg",
     "arrivalTime": "Arrival",
@@ -211,6 +224,7 @@
     "statusDelivered": "Delivered",
     "statusPartial": "Partial",
     "statusRefused": "Refused",
+    "statusExchange": "Exchange",
     "completedAt": "Completed",
     "proof": "Proof",
     "proofPhoto": "Photo",
@@ -290,7 +304,15 @@
     "deleteFailed": "Could not delete courier",
     "deleted": "Courier deleted",
     "created": "Courier created",
-    "updated": "Courier updated"
+    "updated": "Courier updated",
+    "appDownloadTitle": "Driver app download",
+    "appDownloadHelp": "Share this link with couriers so they can install the Android app.",
+    "appVersion": "Published version: {version}",
+    "appNotPublished": "APK is not published on the server yet.",
+    "copyAppLink": "Copy link",
+    "openAppPage": "Open page",
+    "appLinkCopied": "Download link copied",
+    "appLinkCopyFailed": "Could not copy the link"
   },
   "emailTest": {
     "title": "Email test",
@@ -301,6 +323,12 @@
     "send": "Send test email",
     "sending": "Sending…",
     "sent": "Test email sent to {to}",
+    "sendConfirmation": "Send sample Lieferbestätigung",
+    "confirmationSending": "Sending confirmation…",
+    "confirmationSent": "Sample Lieferbestätigung sent to {to}",
+    "confirmationFailed": "Could not send sample Lieferbestätigung",
+    "confirmationHelp": "Builds a demo PDF with sample customer data and attaches it to the email (Mailpit UI shows the attachment).",
+    "attachment": "Attachment",
     "discarded": "Accepted by null transport — set a real MAILER_DSN to deliver mail",
     "failed": "Could not send test email",
     "lastResult": "Last result"

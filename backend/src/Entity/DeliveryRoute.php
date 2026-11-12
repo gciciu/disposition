@@ -516,38 +516,68 @@ class DeliveryRoute
     /**
      * Planned arrival clock times (H:i) keyed by order id.
      *
-     * arrival(1) = scheduledStartTime + travel_to(1)
-     * arrival(n) = arrival(n-1) + unload(n-1) + travel_to(n)
+     * Before any stop is finished:
+     *   arrival(1) = scheduledStartTime + delay + travel_to(1)
+     *   arrival(n) = arrival(n-1) + unload(n-1) + travel_to(n)
+     *
+     * After a stop is delivered/refused, remaining arrivals are rebased from that
+     * stop's completedAt (leave time), then travel + planned unload cascade again.
      *
      * @return array<int, string|null>
      */
     public function computeArrivalTimes(): array
     {
         $result = [];
-        if (null === $this->scheduledStartTime) {
-            foreach ($this->orders as $order) {
-                if (null !== $order->getId()) {
-                    $result[$order->getId()] = null;
-                }
-            }
+        $orders = array_values($this->orders->toArray());
 
-            return $result;
+        $cursorSeconds = null;
+        if (null !== $this->scheduledStartTime) {
+            $cursorSeconds = ((int) $this->scheduledStartTime->format('H')) * 3600
+                + ((int) $this->scheduledStartTime->format('i')) * 60
+                + ($this->delayMinutes * 60);
         }
 
-        $cursorSeconds = ((int) $this->scheduledStartTime->format('H')) * 3600
-            + ((int) $this->scheduledStartTime->format('i')) * 60
-            + ($this->delayMinutes * 60);
+        foreach ($orders as $order) {
+            $orderId = $order->getId();
+            $isFinished = $order->getStatus()->isFinal() && null !== $order->getCompletedAt();
 
-        foreach ($this->orders as $order) {
+            if ($isFinished) {
+                if (null !== $cursorSeconds) {
+                    $cursorSeconds += $order->getTravelDurationSeconds() ?? 0;
+                    if (null !== $orderId) {
+                        $result[$orderId] = self::formatClockTime($cursorSeconds);
+                    }
+                } elseif (null !== $orderId) {
+                    $result[$orderId] = $order->getCompletedAt()->format('H:i');
+                }
+
+                // Courier is free to leave at the actual completion time.
+                $cursorSeconds = self::secondsFromMidnight($order->getCompletedAt());
+                continue;
+            }
+
+            if (null === $cursorSeconds) {
+                if (null !== $orderId) {
+                    $result[$orderId] = null;
+                }
+                continue;
+            }
+
             $cursorSeconds += $order->getTravelDurationSeconds() ?? 0;
-            $arrival = self::formatClockTime($cursorSeconds);
-            if (null !== $order->getId()) {
-                $result[$order->getId()] = $arrival;
+            if (null !== $orderId) {
+                $result[$orderId] = self::formatClockTime($cursorSeconds);
             }
             $cursorSeconds += $order->getUnloadingDurationMinutes() * 60;
         }
 
         return $result;
+    }
+
+    private static function secondsFromMidnight(\DateTimeImmutable $time): int
+    {
+        return ((int) $time->format('H')) * 3600
+            + ((int) $time->format('i')) * 60
+            + ((int) $time->format('s'));
     }
 
     private static function formatClockTime(int $secondsFromMidnight): string

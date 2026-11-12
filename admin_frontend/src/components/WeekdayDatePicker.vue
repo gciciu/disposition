@@ -157,11 +157,7 @@ const selectedDateLabel = computed(() => {
     return props.modelValue
   }
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  const weekday = t(`deliveryRoutes.weekdayFull.${WEEKDAY_KEYS[date.getDay()]}`)
-  return t('deliveryRoutes.scheduledDateWithWeekday', {
-    date: props.modelValue,
-    weekday,
-  })
+  return t(`deliveryRoutes.weekdayFull.${WEEKDAY_KEYS[date.getDay()]}`)
 })
 </script>
 

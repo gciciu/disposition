@@ -58,6 +58,11 @@
     "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
     "adminOnly": "Zugang zum Admin-Bereich nur für Administratoren"
   },
+  "errors": {
+    "invalidCredentials": "Ungültiger Login oder Passwort",
+    "accountDisabled": "Konto deaktiviert",
+    "requestFailed": "Anfrage fehlgeschlagen"
+  },
   "dashboard": {
     "overview": "Übersicht",
     "clients": "Kunden",
@@ -139,6 +144,12 @@
     "scheduledStartTime": "Startzeit",
     "scheduledStartTimeHelp": "Optionale geplante Startzeit",
     "pdfFile": "Routen-PDF",
+    "dropOrBrowse": "PDF hierher ziehen oder klicken zum Auswählen",
+    "dropHere": "PDF hier ablegen",
+    "dropReplaceHint": "Anderes PDF ablegen oder klicken zum Ersetzen",
+    "clearFile": "Datei entfernen",
+    "pdfOnly": "Bitte eine PDF-Datei auswählen",
+    "pdfOnlyHint": "Nur PDF",
     "weekdayShort": {
       "mon": "Mo",
       "tue": "Di",
@@ -157,7 +168,6 @@
       "sat": "Samstag",
       "sun": "Sonntag"
     },
-    "scheduledDateWithWeekday": "{date} ({weekday})",
     "calendarLegendOccupied": "Route geplant",
     "calendarLegendStarted": "Route gestartet",
     "replaceConfirmTitle": "Bestehende Route ersetzen?",
@@ -172,6 +182,8 @@
     "phone": "Telefon",
     "address": "Adresse",
     "comment": "Bemerkung",
+    "courierComment": "Fahrerkommentar",
+    "courierCommentEmpty": "Kein Fahrerkommentar",
     "emailNotify": "E-Mail",
     "emailNotifyTitle": "Benachrichtigen {email}",
     "emailNotifyMissing": "Keine E-Mail-Adresse",
@@ -199,6 +211,7 @@
       "gray": "Grau"
     },
     "products": "Artikel",
+    "accessories": "Zubehör",
     "weight": "Gewicht",
     "weightValue": "{value} kg",
     "arrivalTime": "Ankunft",
@@ -211,6 +224,7 @@
     "statusDelivered": "Zugestellt",
     "statusPartial": "Teilweise",
     "statusRefused": "Abgelehnt",
+    "statusExchange": "Tausch",
     "completedAt": "Erledigt",
     "proof": "Nachweis",
     "proofPhoto": "Foto",
@@ -290,7 +304,15 @@
     "deleteFailed": "Kurier konnte nicht gelöscht werden",
     "deleted": "Kurier gelöscht",
     "created": "Kurier erstellt",
-    "updated": "Kurier aktualisiert"
+    "updated": "Kurier aktualisiert",
+    "appDownloadTitle": "Fahrer-App Download",
+    "appDownloadHelp": "Diesen Link an Kuriere weitergeben, damit sie die Android-App installieren können.",
+    "appVersion": "Veröffentlichte Version: {version}",
+    "appNotPublished": "APK ist auf dem Server noch nicht veröffentlicht.",
+    "copyAppLink": "Link kopieren",
+    "openAppPage": "Seite öffnen",
+    "appLinkCopied": "Download-Link kopiert",
+    "appLinkCopyFailed": "Link konnte nicht kopiert werden"
   },
   "emailTest": {
     "title": "E-Mail-Test",
@@ -301,6 +323,12 @@
     "send": "Test-E-Mail senden",
     "sending": "Wird gesendet…",
     "sent": "Test-E-Mail an {to} gesendet",
+    "sendConfirmation": "Beispiel-Lieferbestätigung senden",
+    "confirmationSending": "Lieferbestätigung wird gesendet…",
+    "confirmationSent": "Beispiel-Lieferbestätigung an {to} gesendet",
+    "confirmationFailed": "Beispiel-Lieferbestätigung konnte nicht gesendet werden",
+    "confirmationHelp": "Erzeugt ein Demo-PDF mit Beispieldaten und hängt es an die E-Mail an (sichtbar in der Mailpit-UI).",
+    "attachment": "Anhang",
     "discarded": "Von null-Transport akzeptiert — setzen Sie einen echten MAILER_DSN für Zustellung",
     "failed": "Test-E-Mail konnte nicht gesendet werden",
     "lastResult": "Letztes Ergebnis"

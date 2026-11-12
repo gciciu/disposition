@@ -3,8 +3,9 @@
 Stack:
 - `backend` — Symfony 7.x + PHP 8.4 + MySQL 8 (native)
 - `mercure` — official Mercure hub binary (driver → admin live updates, port 3000)
+- `mailpit` — local SMTP catcher for email tests (SMTP 1025, UI 8025)
 - `admin_frontend` — Tauri + Vue 3 + Tailwind 4, UI на базе [Admin One](https://github.com/justboil/admin-one-vue-tailwind) (port 1420)
-- `driver_frontend` — Tauri + Vue + Tailwind (port 1430)
+- `driver_frontend` — Tauri + Vue + Tailwind (port 1430); Android APK can self-update via `/api/driver/app-version` + `/api/driver/app.apk`
 
 ## Prerequisites
 
@@ -13,6 +14,35 @@ Stack:
 - Composer 2
 - MySQL 8 (native)
 - Rust (for `npm run tauri dev`)
+
+### Ubuntu local-dev installer
+
+On a clean (or existing) Ubuntu machine, download and run the bootstrap script. It creates a folder **next to the script**, clones the repo from GitHub, installs packages, asks for settings (`GOOGLE_MAPS_API_KEY`, DB, optional super-admin), then can start all dev processes:
+
+```bash
+curl -fsSL -o install-dev-ubuntu.sh \
+  https://raw.githubusercontent.com/gciciu/disposition/main/scripts/install-dev-ubuntu.sh
+chmod +x install-dev-ubuntu.sh
+./install-dev-ubuntu.sh
+```
+
+From an existing checkout (no clone):
+
+```bash
+./scripts/install-dev-ubuntu.sh --inplace
+```
+
+Later starts:
+
+```bash
+./scripts/start-dev.sh
+```
+
+- Admin: http://127.0.0.1:1420/
+- Driver: http://127.0.0.1:1430/
+- API: http://127.0.0.1:8080/
+- Mercure: http://127.0.0.1:3000/.well-known/mercure
+- Mailpit: http://127.0.0.1:8025/
 
 ### Windows install (winget)
 
@@ -103,6 +133,27 @@ php bin/console doctrine:fixtures:load --no-interaction
 php -S 127.0.0.1:8080 -t public
 ```
 
+If login immediately shows **Your session has expired**, JWT keys on that machine are missing or out of sync with `JWT_PASSPHRASE`. Keys live in `backend/config/jwt/*.pem` (not in git) and must be generated on every new machine.
+
+Windows:
+
+```powershell
+cd backend
+php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction
+php bin/console lexik:jwt:check-config
+# or: ..\scripts\setup-php-windows.ps1
+```
+
+Ubuntu / Linux:
+
+```bash
+cd backend
+mkdir -p config/jwt
+php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction
+php bin/console lexik:jwt:check-config
+# if OpenSSL fails: php ../scripts/generate-jwt-keys.php --overwrite
+```
+
 - API: http://127.0.0.1:8080/
 - MySQL: `localhost:3306` / user `delivery` / password `delivery` / db `delivery`
 
@@ -147,21 +198,30 @@ API:
 - `DELETE /api/admin/warehouses/{id}` — удалить склад
 - `GET /api/admin/maps/autocomplete?input=…` — подсказки адресов Google Places
 - `POST /api/admin/email/test` — тестовая отправка email (`{ "to"? }`; без `to` — email текущего админа)
+- `POST /api/admin/email/test-confirmation` — тестовая Lieferbestätigung с demo-PDF (`{ "to"? }`)
 - `GET /api/driver/routes` — маршруты текущего курьера
 - `GET /api/driver/routes/{id}` — детали назначенного маршрута
 
-### Email
+### Email (Mailpit)
 
-В `backend/.env.local` задайте SMTP (или оставьте `null://null` для локальной разработки без доставки):
-
-```
-MAILER_DSN=smtp://user:pass@smtp.example.com:587
-MAIL_FROM=noreply@your-domain.com
+```powershell
+.\scripts\start-mailpit.ps1
 ```
 
-Для локальной проверки удобен [Mailpit](https://github.com/axllent/mailpit): `MAILER_DSN=smtp://localhost:1025`.
+First run downloads the binary into `mailpit/`. Keep it running alongside the API.
 
-Тест: админ-панель → **Email** → «Send test email».
+In `backend/.env.local`:
+
+```
+MAILER_DSN=smtp://127.0.0.1:1025
+MAIL_FROM=noreply@delivery.local
+```
+
+- SMTP: `127.0.0.1:1025`
+- UI: http://127.0.0.1:8025/
+- Test: admin → **Email** → «Send test email»
+
+For production set a real `smtp://user:pass@host:587` and `MAIL_FROM`. Locally you can use `null://null` to discard mail without Mailpit.
 
 ### Google Maps
 

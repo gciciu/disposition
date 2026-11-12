@@ -34,6 +34,11 @@ security:
             stateless: true
             security: false
 
+        driver_app_update:
+            pattern: ^/api/driver/(app-version|app\.apk|download)$
+            stateless: true
+            security: false
+
         api:
             pattern: ^/api
             stateless: true
@@ -47,6 +52,10 @@ security:
     access_control:
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
         - { path: ^/api/token, roles: PUBLIC_ACCESS }
+        - { path: ^/api/driver/app-version, roles: PUBLIC_ACCESS }
+        - { path: ^/api/driver/app\.apk, roles: PUBLIC_ACCESS }
+        - { path: ^/api/driver/download, roles: PUBLIC_ACCESS }
+        - { path: ^/download, roles: PUBLIC_ACCESS }
         - { path: ^/api/me, roles: IS_AUTHENTICATED_FULLY }
         - { path: ^/api/admin, roles: ROLE_ADMIN }
         - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }

@@ -273,11 +273,14 @@ class DriverRouteController extends AbstractController
                 return $deliveredIndexes;
             }
 
+            $courierComment = $this->parseCourierComment($request->request->get('courierComment'));
+
             $updated = $this->proofService->completeWithProof(
                 $order,
                 $proofType,
                 $file,
                 $deliveredIndexes,
+                $courierComment,
             );
             $this->finishRouteIfAllStopsDone($updated->getRoute());
 
@@ -298,6 +301,7 @@ class DriverRouteController extends AbstractController
     public function refuse(
         int $routeId,
         int $orderId,
+        Request $request,
         #[CurrentUser] User $user,
     ): JsonResponse {
         try {
@@ -313,7 +317,10 @@ class DriverRouteController extends AbstractController
 
             $this->assertRouteStarted($order->getRoute());
 
-            $updated = $this->proofService->refuse($order);
+            $payload = $this->readJsonPayload($request);
+            $courierComment = $this->parseCourierComment($payload['courierComment'] ?? null);
+
+            $updated = $this->proofService->refuse($order, $courierComment);
             $this->finishRouteIfAllStopsDone($updated->getRoute());
 
             return $this->json($this->orderMutationResponse($updated));
@@ -353,6 +360,21 @@ class DriverRouteController extends AbstractController
         $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_INLINE, basename($path));
 
         return $response;
+    }
+
+    private function parseCourierComment(mixed $raw): ?string
+    {
+        if (null === $raw) {
+            return null;
+        }
+
+        if (!\is_string($raw)) {
+            return null;
+        }
+
+        $trimmed = trim($raw);
+
+        return '' === $trimmed ? null : $trimmed;
     }
 
     /**

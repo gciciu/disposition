@@ -196,8 +196,16 @@ const onCommentsSaved = (routeData) => {
   }
 }
 
+const isOrderFinished = (order) =>
+  order?.status === 'delivered' || order?.status === 'refused'
+
 const applyUnload = async (order) => {
-  if (!detail.value?.id || !order?.id || applyingUnloadId.value != null) {
+  if (
+    !detail.value?.id ||
+    !order?.id ||
+    applyingUnloadId.value != null ||
+    isOrderFinished(order)
+  ) {
     return
   }
 
@@ -328,12 +336,34 @@ const formatScheduledDateWithWeekday = (value) => {
     return value
   }
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  const weekday = t(`deliveryRoutes.weekdayFull.${WEEKDAY_KEYS[date.getDay()]}`)
-  return t('deliveryRoutes.scheduledDateWithWeekday', { date: value, weekday })
+  return t(`deliveryRoutes.weekdayFull.${WEEKDAY_KEYS[date.getDay()]}`)
 }
 
 const displayAddress = (order) =>
   withoutCountry(order.formattedAddress || order.address)
+
+const accessoryIndexSet = (order) =>
+  new Set(
+    (order?.accessoryProductIndexes ?? [])
+      .map((index) => Number(index))
+      .filter((index) => Number.isInteger(index) && index >= 0),
+  )
+
+const regularProductsOf = (order) => {
+  const products = order?.products ?? []
+  const accessories = accessoryIndexSet(order)
+  return products
+    .map((product, index) => ({ product, index }))
+    .filter(({ index }) => !accessories.has(index))
+}
+
+const accessoryProductsOf = (order) => {
+  const products = order?.products ?? []
+  const accessories = accessoryIndexSet(order)
+  return products
+    .map((product, index) => ({ product, index }))
+    .filter(({ index }) => accessories.has(index))
+}
 
 const isProductDelivered = (order, index) => {
   if (order.status !== 'delivered') {
@@ -640,6 +670,12 @@ watch(warehouseOptions, () => {
                   <div class="font-medium">
                     {{ order.clientName }}
                     <span
+                      v-if="order.isExchange"
+                      class="ml-2 text-xs font-bold uppercase text-violet-700 dark:text-violet-300"
+                    >
+                      {{ t('deliveryRoutes.statusExchange') }}
+                    </span>
+                    <span
                       v-if="order.status === 'refused'"
                       class="ml-2 text-xs font-bold uppercase text-red-600"
                     >
@@ -687,6 +723,32 @@ watch(warehouseOptions, () => {
                     <span class="mx-1">·</span>
                     {{ order.travelDistanceText || '—' }}
                   </div>
+                  <div
+                    v-if="regularProductsOf(order).length"
+                    class="mt-2 space-y-0.5 text-xs text-gray-600 dark:text-slate-300"
+                  >
+                    <div
+                      v-for="{ product, index } in regularProductsOf(order)"
+                      :key="`p-${order.id}-${index}`"
+                    >
+                      {{ product }}
+                    </div>
+                  </div>
+                  <div
+                    v-if="accessoryProductsOf(order).length"
+                    class="mt-2 space-y-0.5 text-xs"
+                  >
+                    <div class="font-semibold tracking-wide text-gray-500 uppercase dark:text-slate-400">
+                      {{ t('deliveryRoutes.accessories') }}
+                    </div>
+                    <div
+                      v-for="{ product, index } in accessoryProductsOf(order)"
+                      :key="`a-${order.id}-${index}`"
+                      class="text-gray-600 dark:text-slate-300"
+                    >
+                      {{ product }}
+                    </div>
+                  </div>
                 </td>
                 <td
                   :data-label="t('deliveryRoutes.duration')"
@@ -717,16 +779,19 @@ watch(warehouseOptions, () => {
                 >
                   <div class="flex items-center gap-0.5">
                     <input
-                      class="w-12 rounded border border-gray-300 px-1.5 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
+                      class="w-12 rounded border border-gray-300 px-1.5 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
                       type="number"
                       :min="UNLOAD_MIN"
                       :max="UNLOAD_MAX"
                       :value="unloadDrafts[order.id] ?? savedUnloadMinutes(order)"
-                      :disabled="applyingUnloadId === order.id"
+                      :disabled="
+                        isOrderFinished(order) || applyingUnloadId === order.id
+                      "
                       :aria-label="`${t('deliveryRoutes.unloadTime')} (${t('deliveryRoutes.unloadMinutesUnit')})`"
                       @input="onUnloadDraftInput(order.id, $event)"
                     />
                     <button
+                      v-if="!isOrderFinished(order)"
                       type="button"
                       class="inline-flex items-center justify-center rounded p-1 transition-colors"
                       :class="
@@ -758,7 +823,7 @@ watch(warehouseOptions, () => {
                   @click.stop="openCommentsModal(order)"
                 >
                   <div
-                    v-if="order.comments?.length"
+                    v-if="order.comments?.length || order.courierComment"
                     class="space-y-1"
                   >
                     <div
@@ -768,6 +833,13 @@ watch(warehouseOptions, () => {
                       :class="commentRowClass(comment.color)"
                     >
                       {{ comment.text }}
+                    </div>
+                    <div
+                      v-if="order.courierComment"
+                      class="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-200"
+                      :title="t('deliveryRoutes.courierComment')"
+                    >
+                      {{ order.courierComment }}
                     </div>
                   </div>
                   <span v-else class="text-gray-400">—</span>

@@ -39,6 +39,40 @@ class DeliveryConfirmationPdfBuilder
     }
 
     /**
+     * Demo Lieferbestätigung with fixed sample data (no DB order required).
+     * Used for local email / Mailpit tests.
+     */
+    public function buildSample(?string $customerEmail = null): DeliveryConfirmationPdfDocument
+    {
+        $now = new \DateTimeImmutable();
+        $createdLabel = $this->formatDateTime($now);
+
+        return new DeliveryConfirmationPdfDocument(
+            company: $this->buildCompany([]),
+            documentTitle: 'Lieferbestätigung',
+            routeLabel: 'KW 44 H. Wagner 949 KG 1356 KM',
+            position: 9,
+            createdAtLabel: $createdLabel,
+            statusLabel: 'Geliefert',
+            customerName: 'Max Mustermann',
+            customerAddress: 'Musterstraße 12, 34117 Kassel',
+            customerPhone: '+49 561 1234567',
+            customerEmail: $customerEmail ?? 'kunde@example.com',
+            driverName: 'Testfahrer',
+            deliveryAtLabel: $createdLabel,
+            deliveryMethod: DeliveryConfirmationPdfDocument::METHOD_LEFT_ON_SITE,
+            products: [
+                '1 × HZ BS White / 19 mm, 120 × 60 cm / White',
+                '2 × HZ Anthracite / 19 mm, 126 × 30 cm / Anthracite',
+            ],
+            weightKg: 24.5,
+            additionalInfo: 'Phone notice 1 day in advance (sample data)',
+            proofImageDataUri: null,
+            proofSectionTitle: 'Lieferfoto',
+        );
+    }
+
+    /**
      * @param array{
      *     customerEmail?: string|null,
      *     weightKg?: float|null,
