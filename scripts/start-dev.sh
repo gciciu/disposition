@@ -347,23 +347,19 @@ ensure_dependencies() {
 }
 
 # Heal stale installer env so Ubuntu copies keep working after localhost migration.
+# APP_ENV=dev uses when@dev Nelmio (allow_origin *), but keep env sane for non-dev fallsbacks.
 heal_local_env() {
   local env_local="$ROOT/backend/.env.local"
   local mercure_env="$ROOT/mercure/.env"
-  local cors_re='^https?://(localhost|127\\.0\\.0\\.1|tauri\\.localhost)(:[0-9]+)?$'
+  # Broad regex kept as fallback if someone runs without when@dev override
+  local cors_re='^.*$'
   local cors_line="CORS_ALLOW_ORIGIN='${cors_re}'"
 
   if [[ -f "$env_local" ]]; then
     if grep -q '^CORS_ALLOW_ORIGIN=' "$env_local"; then
-      # Ensure private-network-friendly local origins (localhost + 127.0.0.1 + tauri)
-      if ! grep -q 'tauri\\.localhost' "$env_local"; then
-        # Portable in-place edit (GNU sed on Ubuntu)
-        sed -i "s|^CORS_ALLOW_ORIGIN=.*|${cors_line}|" "$env_local"
-        echo "Updated CORS_ALLOW_ORIGIN in backend/.env.local"
-      fi
+      sed -i "s|^CORS_ALLOW_ORIGIN=.*|${cors_line}|" "$env_local"
     else
       printf '\n%s\n' "$cors_line" >>"$env_local"
-      echo "Added CORS_ALLOW_ORIGIN to backend/.env.local"
     fi
 
     # Prefer localhost hub URLs when DEV_HOST is localhost (API process still overrides)
@@ -377,10 +373,9 @@ heal_local_env() {
   fi
 
   if [[ -f "$mercure_env" ]]; then
-    # Ensure driver :1430 is allowed even on old mercure/.env from earlier installers
-    if ! grep -q ':1430' "$mercure_env"; then
-      sed -i "s|^MERCURE_EXTRA_DIRECTIVES=.*|MERCURE_EXTRA_DIRECTIVES=cors_origins http://localhost:${ADMIN_PORT} http://localhost:${DRIVER_PORT} http://127.0.0.1:${ADMIN_PORT} http://127.0.0.1:${DRIVER_PORT}|" "$mercure_env"
-      echo "Updated Mercure cors_origins (added driver :${DRIVER_PORT})"
+    if ! grep -q 'cors_origins \*' "$mercure_env"; then
+      sed -i 's|^MERCURE_EXTRA_DIRECTIVES=.*|MERCURE_EXTRA_DIRECTIVES=cors_origins *|' "$mercure_env"
+      echo "Updated Mercure cors_origins → * (dev)"
     fi
   fi
 }
@@ -392,14 +387,9 @@ verify_cors_config() {
   fi
   if ! grep -Eq 'allow_private_network:[[:space:]]*true' "$yaml"; then
     echo "WARNING: nelmio_cors.yaml lacks allow_private_network: true" >&2
-    echo "  Authenticated API calls may fail CORS preflight on Ubuntu Chrome/Firefox." >&2
   fi
-  # Old trees only allowed Content-Type + Authorization → 400 Unauthorized header x-delivery-authorization
-  if grep -q "allow_headers:.*Content-Type" "$yaml" \
-    && ! grep -Eq "allow_headers:[[:space:]]*['\"]?\*" "$yaml" \
-    && ! grep -qi 'X-Delivery-Authorization' "$yaml"; then
-    echo "WARNING: nelmio_cors.yaml is missing X-Delivery-Authorization / allow_headers: *" >&2
-    echo "  Login works, but authenticated API calls fail CORS preflight." >&2
+  if ! grep -q 'when@dev' "$yaml" || ! grep -q "allow_origin: \['\*'\]" "$yaml"; then
+    echo "WARNING: nelmio_cors.yaml missing when@dev allow_origin: ['*'] (permissive local CORS)." >&2
   fi
 }
 
@@ -513,7 +503,8 @@ fi
   # shellcheck disable=SC1091
   source "$ROOT/mercure/.env"
   SERVER_NAME="http://${DEV_HOST}:${MERCURE_PORT}"
-  MERCURE_EXTRA_DIRECTIVES="cors_origins http://${DEV_HOST}:${ADMIN_PORT} http://${DEV_HOST}:${DRIVER_PORT} http://localhost:${ADMIN_PORT} http://localhost:${DRIVER_PORT} http://127.0.0.1:${ADMIN_PORT} http://127.0.0.1:${DRIVER_PORT}"
+  # Dev: allow any browser Origin (matches permissive Nelmio when@dev).
+  MERCURE_EXTRA_DIRECTIVES="cors_origins *"
   set +a
   cd "$ROOT/mercure"
   ./mercure run --config Caddyfile

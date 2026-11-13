@@ -426,7 +426,8 @@ APP_SECRET=${APP_SECRET}
 DATABASE_URL="${DATABASE_URL}"
 
 JWT_PASSPHRASE=${JWT_PASSPHRASE}
-CORS_ALLOW_ORIGIN='^https?://(localhost|127\\.0\\.0\\.1|tauri\\.localhost)(:[0-9]+)?$'
+# Dev uses when@dev Nelmio allow_origin *; this env is a fallback if APP_ENV≠dev.
+CORS_ALLOW_ORIGIN='^.*$'
 
 GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
 
@@ -452,7 +453,7 @@ MERCURE_PUBLISHER_JWT_KEY=${MERCURE_SECRET}
 MERCURE_SUBSCRIBER_JWT_KEY=${MERCURE_SECRET}
 MERCURE_PUBLISHER_JWT_ALG=HS256
 MERCURE_SUBSCRIBER_JWT_ALG=HS256
-MERCURE_EXTRA_DIRECTIVES=cors_origins http://localhost:1420 http://localhost:1430 http://127.0.0.1:1420 http://127.0.0.1:1430
+MERCURE_EXTRA_DIRECTIVES=cors_origins *
 EOF
 info "Wrote mercure/.env"
 
