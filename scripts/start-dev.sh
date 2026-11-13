@@ -388,8 +388,12 @@ verify_cors_config() {
   if ! grep -Eq 'allow_private_network:[[:space:]]*true' "$yaml"; then
     echo "WARNING: nelmio_cors.yaml lacks allow_private_network: true" >&2
   fi
-  if ! grep -q 'when@dev' "$yaml" || ! grep -q '%env(CORS_ALLOW_ORIGIN)%' "$yaml"; then
+  if ! grep -q '%env(CORS_ALLOW_ORIGIN)%' "$yaml"; then
     echo "WARNING: nelmio_cors.yaml must keep %env(CORS_ALLOW_ORIGIN)% (Symfony debug 500 if unused)." >&2
+  fi
+  # Broken commit allowed allow_origin: ['*'] under when@dev and dropped the env ref.
+  if grep -q "allow_origin: \['\*'\]" "$yaml"; then
+    echo "WARNING: nelmio_cors.yaml has allow_origin: ['*'] — causes unused-env 500 in debug." >&2
   fi
 }
 
@@ -421,43 +425,49 @@ cors_preflight_smoke_test() {
   fi
 
   local origin="http://${DEV_HOST}:${ADMIN_PORT}"
-  local api="http://${DEV_HOST}:${API_PORT}/api/me"
-  local tmp status body
+  # /api/login is what the browser hits first; missing ACAO usually means HTTP 500
+  # (e.g. unused CORS_ALLOW_ORIGIN) — browser only shows a CORS error.
+  local api="http://${DEV_HOST}:${API_PORT}/api/login"
+  local tmp hdr status body acao
 
   echo "CORS preflight smoke test → $api (Origin: $origin)"
   tmp="$(mktemp)"
+  hdr="$(mktemp)"
   status="$(
-    curl -sS -o "$tmp" -w '%{http_code}' -X OPTIONS "$api" \
+    curl -sS -D "$hdr" -o "$tmp" -w '%{http_code}' -X OPTIONS "$api" \
       -H "Origin: ${origin}" \
-      -H 'Access-Control-Request-Method: GET' \
-      -H 'Access-Control-Request-Headers: authorization,x-delivery-authorization,content-type,accept' \
+      -H 'Access-Control-Request-Method: POST' \
+      -H 'Access-Control-Request-Headers: content-type,accept' \
       -H 'Access-Control-Request-Private-Network: true' \
       --connect-timeout 2 --max-time 5 || true
   )"
   body="$(cat "$tmp" 2>/dev/null || true)"
-  rm -f "$tmp"
+  acao="$(grep -i '^Access-Control-Allow-Origin:' "$hdr" 2>/dev/null | tr -d '\r' || true)"
+  rm -f "$tmp" "$hdr"
 
-  if [[ "$status" != "200" && "$status" != "204" ]]; then
+  if [[ "$status" != "200" && "$status" != "204" ]] || [[ -z "$acao" ]]; then
     echo "ERROR: CORS preflight failed (HTTP ${status:-000})." >&2
-    if [[ -n "$body" ]]; then
-      echo "  Response: $body" >&2
+    if [[ -n "$acao" ]]; then
+      echo "  $acao" >&2
+    else
+      echo "  Missing Access-Control-Allow-Origin (browser reports this as a CORS error)." >&2
     fi
-    if [[ "$body" == *"Unauthorized header"* ]]; then
-      echo "  Cause: nelmio allow_headers rejects a requested header (need '*' or X-Delivery-Authorization)." >&2
+    if [[ "$body" == *"never used"* ]] || [[ "$body" == *"CORS_ALLOW_ORIGIN"* ]]; then
+      echo "  Cause: Symfony unused env CORS_ALLOW_ORIGIN (bad nelmio when@dev override)." >&2
+      echo "  Fix: git pull + ensure nelmio keeps %env(CORS_ALLOW_ORIGIN)% + cache:clear." >&2
+    elif [[ "$body" == *"Unauthorized header"* ]]; then
+      echo "  Cause: allow_headers rejects a requested header." >&2
     elif [[ "$body" == *"Private Network"* ]]; then
       echo "  Cause: allow_private_network is false." >&2
-    else
-      echo "  Typical cause: stale Symfony CORS config cache." >&2
+    elif [[ -n "$body" ]]; then
+      # Strip HTML noise for the common Symfony title
+      echo "  Response: $(printf '%s' "$body" | tr '\n' ' ' | cut -c1-240)" >&2
     fi
-    echo "  Fix: cd \"$ROOT/backend\" && php bin/console cache:clear && re-run start-dev." >&2
-    if [[ -f "$ROOT/backend/bin/console" ]]; then
-      echo "  Current nelmio allow_headers:" >&2
-      (cd "$ROOT/backend" && php bin/console debug:config nelmio_cors defaults.allow_headers 2>/dev/null) >&2 || true
-    fi
+    echo "  Fix: cd \"$ROOT\" && git pull --ff-only && cd backend && php bin/console cache:clear && re-run start-dev." >&2
     return 1
   fi
 
-  echo "CORS preflight OK (HTTP $status)"
+  echo "CORS preflight OK (HTTP $status, $acao)"
 }
 
 # Bundled launcher (next to install-dev-ubuntu.sh) is the source of truth when
