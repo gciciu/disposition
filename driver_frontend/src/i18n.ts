@@ -1,4 +1,5 @@
 import { createI18n } from "vue-i18n";
+import { ApiError, isUnauthorizedError } from "./api";
 import en from "./locales/en.json";
 import de from "./locales/de.json";
 
@@ -38,11 +39,33 @@ export function setLocale(locale: AppLocale): void {
   setStoredLocale(locale);
 }
 
+/** Empty string when session expired (401 → login); otherwise localized message. */
+export function displayApiError(
+  error: unknown,
+  t: (key: string) => string,
+  fallbackKey = "errors.requestFailed",
+): string {
+  if (isUnauthorizedError(error)) {
+    return "";
+  }
+  if (error instanceof ApiError) {
+    return translateApiError(error.message, t, fallbackKey);
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return t(fallbackKey);
+}
+
 export function translateApiError(
   message: string,
   t: (key: string) => string,
   fallbackKey = "errors.requestFailed",
 ): string {
+  if (!message) {
+    return "";
+  }
+
   const normalized = message.trim().toLowerCase();
 
   if (

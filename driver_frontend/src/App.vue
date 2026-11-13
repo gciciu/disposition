@@ -13,7 +13,7 @@ import LoginView from "./views/LoginView.vue";
 import RoutesHomeView from "./views/RoutesHomeView.vue";
 
 const { t } = useI18n();
-const { bootstrap, isAuthenticated, mustChangePassword } = useAuth();
+const { bootstrap, isAuthenticated, mustChangePassword, logout } = useAuth();
 const ready = ref(false);
 const updateRemote = ref<DriverAppVersionInfo | null>(null);
 const updateLocalVersion = ref("");
@@ -60,6 +60,31 @@ const screen = computed(() => {
   <main class="app-shell" :class="{ 'app-shell--wide': screen === 'routes' }">
     <div class="app-shell__lang">
       <LanguageSwitcher />
+      <button
+        v-if="isAuthenticated"
+        class="app-shell__logout"
+        type="button"
+        :aria-label="t('common.logout')"
+        :title="t('common.logout')"
+        @click="logout"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+          <path
+            d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M16 8l4 4-4 4M10 12h10"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
     </div>
 
     <div v-if="!ready" class="loading-copy">{{ t("common.loading") }}</div>

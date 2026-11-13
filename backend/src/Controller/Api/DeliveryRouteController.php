@@ -60,6 +60,11 @@ class DeliveryRouteController extends AbstractController
     #[Route('/import', name: 'api_admin_routes_import', methods: ['POST'])]
     public function import(Request $request): JsonResponse
     {
+        // Geocoding every stop + Directions can exceed the default 30s web limit.
+        if (\function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
         if (!$this->googleMaps->isConfigured()) {
             return $this->json([
                 'error' => 'GOOGLE_MAPS_API_KEY is not configured',

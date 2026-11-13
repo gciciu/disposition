@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ApiError } from "../api";
 import { useAuth } from "../auth";
-import { translateApiError } from "../i18n";
+import { displayApiError } from "../i18n";
 
 const { t } = useI18n();
-const { changePassword, logout, state } = useAuth();
+const { changePassword, state } = useAuth();
 
 const form = reactive({
   password: "",
@@ -40,13 +39,7 @@ async function submit() {
   try {
     await changePassword(form.password, form.passwordConfirmation);
   } catch (err) {
-    if (err instanceof ApiError) {
-      error.value = translateApiError(err.message, t, "password.failed");
-    } else if (err instanceof Error) {
-      error.value = translateApiError(err.message, t, "password.failed");
-    } else {
-      error.value = t("password.failed");
-    }
+    error.value = displayApiError(err, t, "password.failed");
   } finally {
     isLoading.value = false;
   }
@@ -56,7 +49,6 @@ async function submit() {
 <template>
   <form class="panel" @submit.prevent="submit">
     <div class="panel__header">
-      <p class="brand-mark">{{ t("common.brand") }}</p>
       <h1 class="panel__title">{{ t("password.title") }}</h1>
       <p class="panel__subtitle">{{ greeting }}</p>
     </div>
@@ -94,10 +86,6 @@ async function submit() {
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
         {{ isLoading ? t("password.submitting") : t("password.submit") }}
-      </button>
-
-      <button class="btn btn--ghost" type="button" :disabled="isLoading" @click="logout">
-        {{ t("common.logout") }}
       </button>
     </div>
   </form>

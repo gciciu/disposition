@@ -181,17 +181,17 @@ class GoogleMapsService
             ];
         }
 
-        $response = $this->httpClient->request('GET', self::GEOCODE_URL, [
-            'query' => [
-                'address' => $input,
-                'language' => 'de',
-                'region' => 'de',
-                'key' => $this->apiKey,
-            ],
-            'timeout' => 10,
-        ]);
-
         try {
+            $response = $this->httpClient->request('GET', self::GEOCODE_URL, [
+                'query' => [
+                    'address' => $input,
+                    'language' => 'de',
+                    'region' => 'de',
+                    'key' => $this->apiKey,
+                ],
+                'timeout' => 10,
+                'max_duration' => 15,
+            ]);
             $data = $response->toArray(false);
         } catch (\Throwable $e) {
             return [
@@ -297,6 +297,7 @@ class GoogleMapsService
         $response = $this->httpClient->request('GET', self::DIRECTIONS_URL, [
             'query' => $query,
             'timeout' => 20,
+            'max_duration' => 45,
         ]);
 
         $data = $response->toArray(false);

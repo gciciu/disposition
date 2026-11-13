@@ -13,7 +13,7 @@ import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.
 import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseLevel from '@/components/BaseLevel.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 import { withoutCountry } from '@/utils/address.js'
 
 const { t } = useI18n()
@@ -40,7 +40,7 @@ const loadWarehouses = async () => {
     const { data } = await api.get('/api/admin/warehouses')
     warehouses.value = data.warehouses ?? []
   } catch (e) {
-    toast.error(e.response?.data?.error || t('warehouses.loadFailed'))
+    showApiError(toast, e, t('warehouses.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -67,7 +67,7 @@ const confirmDelete = async () => {
     deleteTarget.value = null
     await loadWarehouses()
   } catch (e) {
-    toast.error(e.response?.data?.error || t('warehouses.deleteFailed'))
+    showApiError(toast, e, t('warehouses.deleteFailed'))
     deleteTarget.value = null
   } finally {
     deleting.value = false

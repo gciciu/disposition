@@ -52,7 +52,7 @@ class DriverRouteController extends AbstractController
 
         $items = array_map(
             static fn (DeliveryRoute $route): array => $route->toListArray(),
-            $this->routes->findAssignedToCourierFromToday($courier),
+            $this->routes->findAssignedToCourierForCurrentWeek($courier),
         );
 
         return $this->json(['routes' => $items]);

@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  ApiError,
   completeOrderRequest,
   continueRouteRequest,
   fetchMyRouteRequest,
@@ -25,11 +24,11 @@ import ReportDelaySheet from "../components/ReportDelaySheet.vue";
 import SignaturePadModal from "../components/SignaturePadModal.vue";
 import { GeolocationError, getCurrentPosition } from "../geolocation";
 import { toProofJpeg } from "../imageProof";
-import { translateApiError } from "../i18n";
+import { displayApiError } from "../i18n";
 import { withoutCountry } from "../utils/address";
 
 const { t, locale } = useI18n();
-const { logout, state } = useAuth();
+const { state } = useAuth();
 
 const loading = ref(true);
 const loadingDetail = ref(false);
@@ -199,14 +198,8 @@ const loadRoutes = async () => {
   try {
     const data = await fetchMyRoutesRequest();
     routes.value = data.routes ?? [];
-    if (routes.value.length === 1 && !routes.value[0].completedAt) {
-      await openRoute(routes.value[0].id);
-    }
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "routes.loadFailed")
-        : t("routes.loadFailed");
+    error.value = displayApiError(e, t, "routes.loadFailed");
   } finally {
     loading.value = false;
   }
@@ -225,10 +218,7 @@ const openRoute = async (id: number) => {
     detail.value = data.route;
     showClosed.value = Boolean(data.route.completedAt);
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "routes.loadDetailFailed")
-        : t("routes.loadDetailFailed");
+    error.value = displayApiError(e, t, "routes.loadDetailFailed");
     selectedId.value = null;
   } finally {
     loadingDetail.value = false;
@@ -300,10 +290,7 @@ const startRoute = async () => {
           ? t("routes.locationDenied")
           : t("routes.locationFailed");
     } else {
-      error.value =
-        e instanceof ApiError
-          ? translateApiError(e.message, t, "routes.startFailed")
-          : t("routes.startFailed");
+      error.value = displayApiError(e, t, "routes.startFailed");
     }
     showStartConfirm.value = false;
   } finally {
@@ -373,10 +360,7 @@ const continueRoute = async () => {
     continueRouteTarget.value = null;
     await openRoute(data.route.id);
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "routes.continueFailed")
-        : t("routes.continueFailed");
+    error.value = displayApiError(e, t, "routes.continueFailed");
     continueRouteTarget.value = null;
   } finally {
     continuing.value = false;
@@ -406,10 +390,7 @@ const finishRoute = async () => {
     showClosed.value = true;
     showFinishConfirm.value = false;
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "routes.finishFailed")
-        : t("routes.finishFailed");
+    error.value = displayApiError(e, t, "routes.finishFailed");
     showFinishConfirm.value = false;
   } finally {
     finishing.value = false;
@@ -515,10 +496,7 @@ const submitDelay = async (minutes: number) => {
     syncRouteListItem(data.route);
     showDelaySheet.value = false;
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "delivery.delayFailed")
-        : t("delivery.delayFailed");
+    error.value = displayApiError(e, t, "delivery.delayFailed");
     showDelaySheet.value = false;
   } finally {
     submitting.value = false;
@@ -576,10 +554,7 @@ const submitProof = async (
     pendingCourierComment.value = "";
     selectedOrderId.value = null;
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "delivery.submitFailed")
-        : t("delivery.submitFailed");
+    error.value = displayApiError(e, t, "delivery.submitFailed");
   } finally {
     submitting.value = false;
   }
@@ -597,8 +572,7 @@ const onPhotoSelected = async (event: Event) => {
     const { blob, filename } = await toProofJpeg(file);
     await submitProof("photo", blob, filename);
   } catch (e) {
-    error.value =
-      e instanceof Error && e.message ? e.message : t("delivery.submitFailed");
+    error.value = displayApiError(e, t, "delivery.submitFailed");
   }
 };
 
@@ -627,10 +601,7 @@ const submitRefuse = async () => {
     pendingCourierComment.value = "";
     selectedOrderId.value = null;
   } catch (e) {
-    error.value =
-      e instanceof ApiError
-        ? translateApiError(e.message, t, "delivery.refuseFailed")
-        : t("delivery.refuseFailed");
+    error.value = displayApiError(e, t, "delivery.refuseFailed");
   } finally {
     submitting.value = false;
   }
@@ -652,7 +623,6 @@ watch(
   <div class="driver-routes">
     <div class="driver-routes__top">
       <div>
-        <p class="brand-mark">{{ t("common.brand") }}</p>
         <h1 class="panel__title">
           {{ detail?.name || t("routes.title") }}
         </h1>
@@ -660,9 +630,6 @@ watch(
           {{ state.user.name }}
         </p>
       </div>
-      <button class="btn btn--ghost btn--compact" type="button" @click="logout">
-        {{ t("common.logout") }}
-      </button>
     </div>
 
     <p v-if="error" class="alert">{{ error }}</p>

@@ -12,7 +12,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -56,7 +56,7 @@ const loadCourier = async () => {
     form.subcontractor = courier.subcontractor ?? ''
     form.password = ''
   } catch (e) {
-    toast.error(e.response?.data?.error || t('couriers.loadFailed'))
+    showApiError(toast, e, t('couriers.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -91,7 +91,7 @@ const submit = async () => {
       toast.success(t('couriers.updated'))
     }
   } catch (e) {
-    toast.error(e.response?.data?.error || t('couriers.saveFailed'))
+    showApiError(toast, e, t('couriers.saveFailed'))
   } finally {
     saving.value = false
   }

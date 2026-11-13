@@ -12,7 +12,7 @@ import BaseButtons from '@/components/BaseButtons.vue'
 import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
 import { useAuthStore } from '@/stores/auth.js'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -53,7 +53,7 @@ const sendTest = async () => {
     const { data } = await api.post('/api/admin/email/test', recipientPayload())
     applyResult(data, 'emailTest.sent')
   } catch (e) {
-    toast.error(e.response?.data?.error || t('emailTest.failed'))
+    showApiError(toast, e, t('emailTest.failed'))
   } finally {
     sending.value = false
   }
@@ -67,7 +67,7 @@ const sendConfirmation = async () => {
     const { data } = await api.post('/api/admin/email/test-confirmation', recipientPayload())
     applyResult(data, 'emailTest.confirmationSent')
   } catch (e) {
-    toast.error(e.response?.data?.error || t('emailTest.confirmationFailed'))
+    showApiError(toast, e, t('emailTest.confirmationFailed'))
   } finally {
     sendingConfirmation.value = false
   }

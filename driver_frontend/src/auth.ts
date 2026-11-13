@@ -3,6 +3,7 @@ import {
   type AuthUser,
   changePasswordRequest,
   clearStoredSession,
+  ensureFreshAccessToken,
   fetchMeRequest,
   loginRequest,
   logoutRequest,
@@ -10,6 +11,7 @@ import {
   readStoredRefreshToken,
   readStoredToken,
   readStoredUser,
+  setSessionHandlers,
   updateStoredUser,
 } from "./api";
 
@@ -20,6 +22,21 @@ const state = reactive({
   refreshToken: readStoredRefreshToken(),
   user: readStoredUser() as AuthUser | null,
   bootstrapped: false,
+});
+
+setSessionHandlers({
+  onExpired() {
+    state.token = "";
+    state.refreshToken = "";
+    state.user = null;
+  },
+  onTokens(data) {
+    state.token = data.token;
+    state.refreshToken = data.refresh_token || "";
+    if (data.user) {
+      state.user = data.user;
+    }
+  },
 });
 
 export function useAuth() {
@@ -90,6 +107,9 @@ export function useAuth() {
     }
 
     try {
+      await ensureFreshAccessToken();
+      state.token = readStoredToken();
+      state.refreshToken = readStoredRefreshToken();
       await fetchMe();
     } catch {
       await logout();

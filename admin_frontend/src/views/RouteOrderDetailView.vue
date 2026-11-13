@@ -19,7 +19,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import DeliveryProofThumb from '@/components/DeliveryProofThumb.vue'
 import OrderCommentsModal from '@/components/OrderCommentsModal.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 import { useRealtime } from '@/composables/useRealtime.js'
 import { withoutCountry } from '@/utils/address.js'
 import { commentRowClass } from '@/utils/commentColors.js'
@@ -249,7 +249,7 @@ const applyUnload = async () => {
     syncUnloadDraft()
     toast.success(t('deliveryRoutes.unloadApplied'))
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.unloadApplyFailed'))
+    showApiError(toast, e, t('deliveryRoutes.unloadApplyFailed'))
   } finally {
     applyingUnload.value = false
   }
@@ -276,7 +276,7 @@ const loadRoute = async () => {
       syncUnloadDraft()
     }
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.loadDetailFailed'))
+    showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
   } finally {
     loading.value = false
   }

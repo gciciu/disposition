@@ -9,7 +9,7 @@ import CardBoxComponentFooter from '@/components/CardBoxComponentFooter.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 import { COMMENT_COLORS, commentRowClass } from '@/utils/commentColors.js'
 
 const COLOR_SWATCH = {
@@ -163,7 +163,7 @@ const save = async () => {
     toast.success(t('deliveryRoutes.commentsSaved'))
     isOpen.value = false
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.commentsSaveFailed'))
+    showApiError(toast, e, t('deliveryRoutes.commentsSaveFailed'))
   } finally {
     saving.value = false
   }

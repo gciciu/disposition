@@ -12,7 +12,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import WeekdayDatePicker from '@/components/WeekdayDatePicker.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -216,7 +216,13 @@ const buildOriginPayload = () => {
 const showImportError = (e) => {
   const payload = e.response?.data
   const invalidAddresses = Array.isArray(payload?.invalidAddresses) ? payload.invalidAddresses : []
-  let message = payload?.error || t('deliveryRoutes.importFailed')
+  const timedOut =
+    e.code === 'ECONNABORTED' ||
+    /timeout/i.test(String(e.message || '')) ||
+    !e.response
+  let message =
+    payload?.error ||
+    (timedOut ? t('deliveryRoutes.importTimeout') : t('deliveryRoutes.importFailed'))
   if (invalidAddresses.length) {
     const details = invalidAddresses
       .map(
@@ -250,7 +256,10 @@ const submitImport = async (replaceExisting = false) => {
 
   saving.value = true
   try {
-    const { data } = await api.post('/api/admin/routes/import', formData)
+    // Geocoding every stop can take well over the default 15s axios timeout.
+    const { data } = await api.post('/api/admin/routes/import', formData, {
+      timeout: 300000,
+    })
     toast.success(
       t('deliveryRoutes.importSuccess', {
         name: data.route.name,
@@ -289,7 +298,7 @@ const submitEdit = async () => {
     open.value = false
     emit('saved', data.route)
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.saveFailed'))
+    showApiError(toast, e, t('deliveryRoutes.saveFailed'))
   } finally {
     saving.value = false
   }

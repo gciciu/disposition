@@ -126,6 +126,7 @@
     "cancel": "Cancel",
     "importSuccess": "Imported “{name}” with {count} orders",
     "importFailed": "Could not import the route PDF",
+    "importTimeout": "Import timed out while contacting Google Maps. Please try again.",
     "addressInvalid": "Address not found in Google Maps",
     "loadFailed": "Could not load routes",
     "loadDetailFailed": "Could not load route",
@@ -260,10 +261,15 @@
     "assignmentLockedHelp": "Courier, schedule and warehouse cannot be changed after the route has started",
     "scheduleRequired": "Courier and delivery day are required",
     "delete": "Delete",
+    "deleteWeek": "Delete week routes",
     "deleteConfirmTitle": "Delete route?",
-    "deleteConfirmBody": "Delete route “{name}” and all its orders? This cannot be undone.",
+    "deleteConfirmBody": "Delete route “{name}” ({date}) and all its orders? This cannot be undone.",
+    "deleteWeekConfirmTitle": "Delete week routes?",
+    "deleteWeekConfirmBody": "Delete all {count} routes for “{name}” ({weekStart} – {weekEnd}) and their orders? This cannot be undone.",
     "deleteFailed": "Could not delete the route",
-    "deleted": "Route deleted"
+    "deleteWeekFailed": "Could not delete the week routes",
+    "deleted": "Route deleted",
+    "deletedWeek": "Week routes deleted"
   },
   "couriers": {
     "title": "Couriers",

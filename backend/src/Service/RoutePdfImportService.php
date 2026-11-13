@@ -199,16 +199,17 @@ class RoutePdfImportService
                 continue;
             }
 
-            if ($this->isPositionLine($line, $section) && preg_match('/^(\d{1,3})(?:\s+(.+))?$/u', $line, $m)) {
+            $positionMatch = $this->isPositionLine($line, $section) ? $this->matchPositionStart($line) : null;
+            if (null !== $positionMatch) {
                 if (null !== $current) {
                     $orders[] = $this->finalizeOrder($current);
                 }
 
-                $nameRemainder = isset($m[2]) ? trim($m[2]) : '';
+                $nameRemainder = $positionMatch['remainder'];
                 $split = '' !== $nameRemainder ? $this->splitNameAndAddress($nameRemainder) : null;
 
                 $current = [
-                    'position' => (int) $m[1],
+                    'position' => $positionMatch['position'],
                     'clientName' => '',
                     'phone' => null,
                     'address' => '',
@@ -264,19 +265,12 @@ class RoutePdfImportService
             }
 
             if ('contact' === $section) {
-                if ($this->isLpLine($line)) {
-                    $this->applyLpLine($current, $line);
-                    $section = 'products';
+                if ($this->isLpLine($line) || $this->isProductStart($line)) {
+                    $section = $this->ingestArticleLine($current, $line);
                     continue;
                 }
                 if ($this->isContactLine($line) || $this->looksLikeEmail($line)) {
                     $current['contactParts'][] = $line;
-                    continue;
-                }
-                // Unexpected content after contact — treat as LP/products fallback.
-                if ($this->isProductStart($line)) {
-                    $this->pushProduct($current, $line);
-                    $section = 'products';
                     continue;
                 }
                 $current['contactParts'][] = $line;
@@ -284,9 +278,13 @@ class RoutePdfImportService
             }
 
             if ('products' === $section || 'tail' === $section) {
-                if ($this->isWeightLine($line)) {
+                if ($this->isWeightLine($line) || $this->isWeightRemarkLine($line)) {
                     $this->flushProductBuffer($current);
-                    $current['weightKg'] = $this->parseGermanFloat($line);
+                    $weightRemark = $this->splitWeightAndRemark($line);
+                    $current['weightKg'] = $weightRemark['weight'];
+                    if (null !== $weightRemark['remark']) {
+                        $current['commentParts'][] = $weightRemark['remark'];
+                    }
                     $section = 'tail';
                     continue;
                 }
@@ -297,14 +295,24 @@ class RoutePdfImportService
                     continue;
                 }
 
-                if ($this->isProductStart($line)) {
-                    $this->pushProduct($current, $line);
-                    $section = 'products';
+                if ($this->isLpLine($line) || $this->isProductStart($line)) {
+                    $section = $this->ingestArticleLine($current, $line);
                     continue;
                 }
 
                 if ('products' === $section && null !== $current['productBuffer']) {
                     $current['productBuffer'] .= ' '.$line;
+                    continue;
+                }
+
+                // EN PDFs wrap remarks across lines ("Phone notice 1 day in" / "advance").
+                if (
+                    'tail' === $section
+                    && [] !== $current['commentParts']
+                    && 1 === preg_match('/^[a-zäöü][a-zäöü\s.,;:!\'-]{0,40}$/u', $line)
+                ) {
+                    $last = array_key_last($current['commentParts']);
+                    $current['commentParts'][$last] .= ' '.$line;
                     continue;
                 }
             }
@@ -486,21 +494,57 @@ class RoutePdfImportService
     private function isSkippableHeader(string $line): bool
     {
         return str_starts_with($line, 'PosKunde')
+            || str_starts_with($line, 'Pos.Customer')
             || str_starts_with($line, 'Seite ')
             || str_starts_with($line, 'Zubehör')
             || str_starts_with($line, 'Powered by')
+            || str_starts_with($line, 'Route sheet')
+            || str_starts_with($line, 'DELIVERY ROUTE')
+            || str_starts_with($line, 'Route:')
+            || str_starts_with($line, 'Signature Left with')
+            || str_starts_with($line, 'kgDate')
+            // Wrapped EN header fragment: "... Deliver" / "ed"
+            || 'ed' === $line
             // Pure +++ separators only — "+++ Tel. Avis … +++" is a remark line.
             || 1 === preg_match('/^\+{3,}$/u', $line);
     }
 
+    /**
+     * @return array{position: int, remainder: string}|null
+     */
+    private function matchPositionStart(string $line): ?array
+    {
+        if (preg_match('/^(\d{1,3})$/u', $line, $m)) {
+            return ['position' => (int) $m[1], 'remainder' => ''];
+        }
+
+        // "2 Irina Tissen"
+        if (preg_match('/^(\d{1,3})\s+(.+)$/u', $line, $m)) {
+            return ['position' => (int) $m[1], 'remainder' => trim($m[2])];
+        }
+
+        // EN PDFs often glue Pos+name: "3Rewe Andy Müller…"
+        if (preg_match('/^(\d{1,3})([A-Za-zÀ-ÖØ-öø-ÿ].*)$/u', $line, $m)) {
+            return ['position' => (int) $m[1], 'remainder' => trim($m[2])];
+        }
+
+        return null;
+    }
+
     private function isPositionLine(string $line, string $section): bool
     {
-        // Positions are 1–3 digits; German PLZ is 5 digits and must not match.
-        if (!preg_match('/^\d{1,3}(?:\s+\S.*)?$/u', $line)) {
+        if (null === $this->matchPositionStart($line)) {
             return false;
         }
 
-        if ($this->isProductStart($line) || $this->isWeightLine($line) || $this->isAddressStart($line)) {
+        // LP+Artikel ("361 × …") and Artikel ("1 x …") must not become a new Pos.
+        if (
+            $this->isProductStart($line)
+            || null !== $this->splitLpPrefixedProduct($line)
+            || $this->isWeightLine($line)
+            || $this->isWeightRemarkLine($line)
+            || $this->isAddressStart($line)
+        ) {
             return false;
         }
 
@@ -562,12 +606,18 @@ class RoutePdfImportService
 
     private function isLpLine(string $line): bool
     {
-        return 1 === preg_match('/^\d{1,3}(?:\s+\d+\s*x\s+.+)?$/iu', $line);
+        if (null !== $this->splitLpPrefixedProduct($line)) {
+            return true;
+        }
+
+        // LP-only ("36") or spaced "60 1 x …".
+        return 1 === preg_match('/^\d{1,3}(?:\s+\d+\s*[x×]\s+.+)?$/iu', $line);
     }
 
     private function isProductStart(string $line): bool
     {
-        return 1 === preg_match('/^\d+\s*x\s+/iu', $line);
+        // ASCII "x" (DE MySpiegel) and unicode "×" (EN translations).
+        return 1 === preg_match('/^\d+\s*[x×]\s+/iu', $line);
     }
 
     private function isWeightLine(string $line): bool
@@ -575,24 +625,125 @@ class RoutePdfImportService
         return 1 === preg_match('/^\d+[.,]\d+\s*$/u', $line);
     }
 
+    private function isWeightRemarkLine(string $line): bool
+    {
+        return 1 === preg_match('/^\d+[.,]\d+\s+\S/u', $line) && null !== $this->splitWeightAndRemark($line)['remark'];
+    }
+
     private function isRemarkLine(string $line): bool
     {
         return str_contains($line, 'Tel. Avis')
+            || str_contains($line, 'Phone notice')
             || str_starts_with($line, 'TAUSCH')
+            || str_starts_with($line, 'EXCHANGE')
             || str_starts_with($line, '+++');
     }
 
     /**
-     * @param array<string, mixed> $current
+     * EN sheets glue LP + qty: "361 × HZ…" → product "1 × HZ…".
+     * DE sheets use a space: "60 1 x Master…".
      */
-    private function applyLpLine(array &$current, string $line): void
+    private function splitLpPrefixedProduct(string $line): ?string
     {
-        if (preg_match('/^\d{1,3}\s+(\d+\s*x\s+.+)$/iu', $line, $m)) {
-            $this->pushProduct($current, $m[1]);
-
-            return;
+        // Glued LP(2 digits) + qty: needs ≥3 digits before the multiplier.
+        if (preg_match('/^\d{2}(\d+\s*[x×]\s+.+)$/iu', $line, $m)) {
+            return trim($m[1]);
         }
-        // LP-only line — ignored for order fields.
+
+        if (preg_match('/^\d{1,3}\s+(\d+\s*[x×]\s+.+)$/iu', $line, $m)) {
+            return trim($m[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{text: string, weight: float|null, remark: string|null}
+     */
+    private function peelWeightAndRemark(string $line): array
+    {
+        if (preg_match(
+            '/^(.*?)\s+(\d+[.,]\d+)\s+(Phone notice\b.*|Tel\.\s*Avis\b.*|TAUSCH\b.*|EXCHANGE\b.*|\+{3,}.*)$/iu',
+            $line,
+            $m,
+        )) {
+            return [
+                'text' => trim($m[1]),
+                'weight' => $this->parseGermanFloat($m[2]),
+                'remark' => trim($m[3]),
+            ];
+        }
+
+        if (
+            preg_match('/^(.*?)\s+(\d+[.,]\d+)\s*$/u', $line, $m)
+            && $this->isProductStart(trim($m[1]))
+        ) {
+            return [
+                'text' => trim($m[1]),
+                'weight' => $this->parseGermanFloat($m[2]),
+                'remark' => null,
+            ];
+        }
+
+        return ['text' => $line, 'weight' => null, 'remark' => null];
+    }
+
+    /**
+     * @return array{weight: float, remark: string|null}
+     */
+    private function splitWeightAndRemark(string $line): array
+    {
+        if (preg_match(
+            '/^(\d+[.,]\d+)\s+(Phone notice\b.*|Tel\.\s*Avis\b.*|TAUSCH\b.*|EXCHANGE\b.*|\+{3,}.*)$/iu',
+            $line,
+            $m,
+        )) {
+            return [
+                'weight' => $this->parseGermanFloat($m[1]),
+                'remark' => trim($m[2]),
+            ];
+        }
+
+        return [
+            'weight' => $this->parseGermanFloat($line),
+            'remark' => null,
+        ];
+    }
+
+    /**
+     * Consume an LP / Artikel line (possibly with trailing weight + remark).
+     *
+     * @param array<string, mixed> $current
+     *
+     * @return 'products'|'tail'
+     */
+    private function ingestArticleLine(array &$current, string $line): string
+    {
+        $productLine = $this->splitLpPrefixedProduct($line);
+        if (null === $productLine) {
+            if ($this->isProductStart($line)) {
+                $productLine = $line;
+            } else {
+                // LP-only — ignored for order fields.
+                return 'products';
+            }
+        }
+
+        $peeled = $this->peelWeightAndRemark($productLine);
+        $this->pushProduct($current, $peeled['text']);
+
+        if (null !== $peeled['weight']) {
+            $this->flushProductBuffer($current);
+            $current['weightKg'] = $peeled['weight'];
+        }
+        if (null !== $peeled['remark']) {
+            $this->flushProductBuffer($current);
+            $current['commentParts'][] = $peeled['remark'];
+
+            return 'tail';
+        }
+
+        return null !== $peeled['weight'] ? 'tail' : 'products';
     }
 
     /**
@@ -601,7 +752,9 @@ class RoutePdfImportService
     private function pushProduct(array &$current, string $line): void
     {
         $this->flushProductBuffer($current);
-        $current['productBuffer'] = trim($line);
+        // Normalize unicode multiplication sign so products match DE accessory keys.
+        $normalized = preg_replace('/^(\d+)\s*[x×]\s+/iu', '$1 x ', trim($line)) ?? trim($line);
+        $current['productBuffer'] = $normalized;
     }
 
     /**

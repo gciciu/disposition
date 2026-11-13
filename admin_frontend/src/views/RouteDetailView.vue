@@ -13,10 +13,12 @@ import {
   mdiFilePdfBox,
   mdiCalculator,
   mdiEmailOutline,
+  mdiTrashCan,
 } from '@mdi/js'
 import { useToast } from 'vue-toastification'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
+import CardBoxModal from '@/components/CardBoxModal.vue'
 import CardBoxComponentEmpty from '@/components/CardBoxComponentEmpty.vue'
 import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
@@ -25,7 +27,7 @@ import BaseIcon from '@/components/BaseIcon.vue'
 import FormField from '@/components/FormField.vue'
 import FormControl from '@/components/FormControl.vue'
 import OrderCommentsModal from '@/components/OrderCommentsModal.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 import { useRealtime } from '@/composables/useRealtime.js'
 import { withoutCountry } from '@/utils/address.js'
 import { commentRowClass } from '@/utils/commentColors.js'
@@ -38,6 +40,8 @@ const toast = useToast()
 const detail = ref(null)
 const loading = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
+const deleteModalOpen = ref(false)
 const couriers = ref([])
 const warehouses = ref([])
 const selectedCourier = ref(null)
@@ -231,7 +235,7 @@ const applyUnload = async (order) => {
     syncUnloadDrafts()
     toast.success(t('deliveryRoutes.unloadApplied'))
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.unloadApplyFailed'))
+    showApiError(toast, e, t('deliveryRoutes.unloadApplyFailed'))
   } finally {
     applyingUnloadId.value = null
   }
@@ -267,7 +271,7 @@ const loadRoute = async () => {
     syncScheduleFields()
     syncUnloadDrafts()
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.loadDetailFailed'))
+    showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
   } finally {
     loading.value = false
   }
@@ -308,9 +312,35 @@ const saveRoute = async () => {
     syncUnloadDrafts({ preserveDirty: true })
     toast.success(t('deliveryRoutes.saved'))
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.saveFailed'))
+    showApiError(toast, e, t('deliveryRoutes.saveFailed'))
   } finally {
     saving.value = false
+  }
+}
+
+const askDelete = () => {
+  if (!detail.value?.id) {
+    return
+  }
+  deleteModalOpen.value = true
+}
+
+const confirmDelete = async () => {
+  if (!detail.value?.id || deleting.value) {
+    return
+  }
+
+  deleting.value = true
+  try {
+    await api.delete(`/api/admin/routes/${detail.value.id}`)
+    toast.success(t('deliveryRoutes.deleted'))
+    deleteModalOpen.value = false
+    router.push({ name: 'routes' })
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.deleteFailed'))
+    deleteModalOpen.value = false
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -414,8 +444,8 @@ const downloadCompletionPdf = async () => {
     link.download = `route_full_${detail.value.id}.pdf`
     link.click()
     URL.revokeObjectURL(url)
-  } catch {
-    toast.error(t('deliveryRoutes.downloadPdfFailed'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.downloadPdfFailed'))
   } finally {
     downloadingPdf.value = false
   }
@@ -519,8 +549,16 @@ watch(warehouseOptions, () => {
             :label="saving ? t('deliveryRoutes.saving') : t('deliveryRoutes.save')"
             :icon="saving ? mdiLoading : mdiContentSave"
             color="info"
-            :disabled="saving || loading"
+            :disabled="saving || loading || deleting"
             @click="saveRoute"
+          />
+          <BaseButton
+            v-if="detail"
+            :label="t('deliveryRoutes.delete')"
+            :icon="mdiTrashCan"
+            color="danger"
+            :disabled="loading || deleting || saving"
+            @click="askDelete"
           />
         </div>
       </SectionTitleLineWithButton>
@@ -885,6 +923,25 @@ watch(warehouseOptions, () => {
           :client-name="commentsOrder?.clientName ?? ''"
           @saved="onCommentsSaved"
         />
+
+        <CardBoxModal
+          v-model="deleteModalOpen"
+          :title="t('deliveryRoutes.deleteConfirmTitle')"
+          button="danger"
+          :button-label="t('deliveryRoutes.delete')"
+          has-cancel
+          :is-processing="deleting"
+          @confirm="confirmDelete"
+        >
+          <p>
+            {{
+              t('deliveryRoutes.deleteConfirmBody', {
+                name: detail?.name || '',
+                date: detail?.scheduledDate || '—',
+              })
+            }}
+          </p>
+        </CardBoxModal>
       </template>
     </SectionMain>
   </LayoutAuthenticated>

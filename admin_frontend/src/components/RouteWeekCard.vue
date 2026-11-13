@@ -17,7 +17,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['edit', 'delete', 'open-maps', 'open-detail'])
+const emit = defineEmits(['edit', 'delete-week', 'open-maps', 'open-detail'])
 
 const { t } = useI18n()
 
@@ -58,12 +58,33 @@ const segmentTrackClass = (day) => {
     return 'bg-gray-200 opacity-40 dark:bg-slate-700'
   }
   if (day.route.completedAt) {
-    return 'bg-red-400 dark:bg-red-500'
+    // Undelivered / refused remainder on a finished route.
+    return 'bg-red-200 dark:bg-red-900/45'
   }
   if (day.route.startedAt) {
     return 'bg-green-100 dark:bg-green-900/40'
   }
   return 'bg-sky-100 dark:bg-sky-900/40'
+}
+
+/** Green fill: delivered share. On a finished route this leaves refused stops as light red. */
+const segmentProgress = (day) => {
+  const route = day.route
+  if (!route) {
+    return 0
+  }
+
+  const total = route.orderCount ?? 0
+  if (total <= 0) {
+    return 0
+  }
+
+  if (route.completedAt) {
+    const delivered = route.deliveredCount ?? 0
+    return Math.min(100, Math.round((delivered / total) * 100))
+  }
+
+  return route.progress ?? 0
 }
 
 const openMaps = () => {
@@ -78,9 +99,9 @@ const editSelected = () => {
   }
 }
 
-const deleteSelected = () => {
-  if (actionRoute.value) {
-    emit('delete', actionRoute.value)
+const deleteWeek = () => {
+  if (daysWithRoute.value.length) {
+    emit('delete-week', props.week)
   }
 }
 
@@ -146,7 +167,7 @@ const openDayDetail = (day) => {
               v-if="day.route"
               class="absolute inset-y-0 left-0 transition-[width]"
               :class="day.route.startedAt ? 'bg-green-400 dark:bg-green-500' : 'bg-sky-500'"
-              :style="{ width: `${day.route.progress ?? 0}%` }"
+              :style="{ width: `${segmentProgress(day)}%` }"
             />
           </button>
         </div>
@@ -194,9 +215,9 @@ const openDayDetail = (day) => {
           :icon="mdiTrashCan"
           color="danger"
           small
-          :title="t('deliveryRoutes.delete')"
-          :disabled="!actionRoute"
-          @click="deleteSelected"
+          :title="t('deliveryRoutes.deleteWeek')"
+          :disabled="!daysWithRoute.length"
+          @click="deleteWeek"
         />
       </BaseButtons>
     </div>

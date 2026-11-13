@@ -62,9 +62,7 @@ onMounted(() => {
 
 <template>
   <LayoutGuest>
-    <div
-      class="absolute top-4 right-4 z-20 rounded-lg bg-white/10 px-1 text-white backdrop-blur-sm [&_label]:text-slate-200 [&_select]:text-white"
-    >
+    <div class="absolute top-4 right-4 z-20 rounded-lg bg-white/10 px-1 backdrop-blur-sm">
       <LanguageSwitcher />
     </div>
     <SectionFullScreen v-slot="{ cardClass }" bg="transport">

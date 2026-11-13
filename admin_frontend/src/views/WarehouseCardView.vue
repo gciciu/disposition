@@ -14,7 +14,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import LayoutAuthenticated from '@/layouts/LayoutAuthenticated.vue'
 import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -55,7 +55,7 @@ const loadWarehouse = async () => {
     form.placeId = warehouse.placeId ?? null
     form.isDefault = !!warehouse.isDefault
   } catch (e) {
-    toast.error(e.response?.data?.error || t('warehouses.loadFailed'))
+    showApiError(toast, e, t('warehouses.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -88,7 +88,7 @@ const submit = async () => {
       toast.success(t('warehouses.updated'))
     }
   } catch (e) {
-    toast.error(e.response?.data?.error || t('warehouses.saveFailed'))
+    showApiError(toast, e, t('warehouses.saveFailed'))
   } finally {
     saving.value = false
   }

@@ -73,6 +73,35 @@ function persistRefreshedSession(data) {
   onTokens?.(data)
 }
 
+export function isUnauthorizedError(error) {
+  return Boolean(error?.isSessionExpired) || error?.response?.status === 401
+}
+
+/** Show API error toast unless the session expired (401 → login redirect). */
+export function showApiError(toast, error, fallback, options) {
+  if (isUnauthorizedError(error)) {
+    return
+  }
+
+  const payload = error?.response?.data
+  const message = payload?.error || payload?.message || fallback
+  if (options) {
+    toast.error(message, options)
+  } else {
+    toast.error(message)
+  }
+}
+
+function rejectSessionExpired(error) {
+  const next = error || new Error('Session expired')
+  next.isSessionExpired = true
+  if (!next.response) {
+    next.response = { status: 401 }
+  }
+  expireSession()
+  return Promise.reject(next)
+}
+
 export function expireSession({ redirect = true } = {}) {
   clearStoredSession()
   onExpired?.()
@@ -208,8 +237,7 @@ api.interceptors.response.use(
     }
 
     if (original._retry || !readRefreshToken()) {
-      expireSession()
-      return Promise.reject(error)
+      return rejectSessionExpired(error)
     }
 
     original._retry = true
@@ -220,8 +248,7 @@ api.interceptors.response.use(
       setAuthorizationHeader(original.headers, token)
       return api(original)
     } catch (refreshError) {
-      expireSession()
-      return Promise.reject(refreshError)
+      return rejectSessionExpired(refreshError)
     }
   },
 )

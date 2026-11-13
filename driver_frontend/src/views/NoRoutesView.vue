@@ -9,7 +9,6 @@ const { logout, state } = useAuth();
 <template>
   <div class="empty-state">
     <div class="panel__header">
-      <p class="brand-mark">{{ t("common.brand") }}</p>
       <h1 class="panel__title">{{ t("routes.title") }}</h1>
       <p class="panel__subtitle">{{ t("routes.empty") }}</p>
       <p v-if="state.user?.name" class="empty-state__meta">

@@ -37,24 +37,28 @@ class DeliveryRouteRepository extends ServiceEntityRepository
     }
 
     /**
-     * Courier-facing list: today and future scheduled routes only.
+     * Courier-facing list: routes for the current work week (Mon–Fri).
+     * On Sat/Sun returns the upcoming week.
      *
      * @return list<DeliveryRoute>
      */
-    public function findAssignedToCourierFromToday(Courier $courier): array
+    public function findAssignedToCourierForCurrentWeek(Courier $courier): array
     {
         $today = new \DateTimeImmutable('today');
+        $dayOfWeek = (int) $today->format('N'); // 1=Mon … 7=Sun
 
-        return $this->createQueryBuilder('r')
-            ->andWhere('r.courier = :courier')
-            ->andWhere('r.scheduledDate IS NOT NULL')
-            ->andWhere('r.scheduledDate >= :today')
-            ->setParameter('courier', $courier)
-            ->setParameter('today', $today)
-            ->orderBy('r.scheduledDate', 'ASC')
-            ->addOrderBy('r.createdAt', 'DESC')
-            ->getQuery()
-            ->getResult();
+        if ($dayOfWeek >= 6) {
+            $daysUntilMonday = 8 - $dayOfWeek;
+            $weekStart = $today->modify(sprintf('+%d days', $daysUntilMonday))->setTime(0, 0);
+        } elseif (1 === $dayOfWeek) {
+            $weekStart = $today->setTime(0, 0);
+        } else {
+            $weekStart = $today->modify(sprintf('-%d days', $dayOfWeek - 1))->setTime(0, 0);
+        }
+
+        $weekEnd = $weekStart->modify('+4 days');
+
+        return $this->findByCourierAndDateRange($courier, $weekStart, $weekEnd);
     }
 
     public function findOneAssignedToCourier(int $id, Courier $courier): ?DeliveryRoute

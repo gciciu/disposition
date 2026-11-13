@@ -76,6 +76,40 @@ body {
   position: absolute;
   top: max(1rem, env(safe-area-inset-top, 0px));
   right: max(1rem, env(safe-area-inset-right, 0px));
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  z-index: 2;
+}
+
+.app-shell__logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.app-shell__logout:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--border) 70%, var(--ink));
+}
+
+.app-shell__logout svg {
+  width: 1.15rem;
+  height: 1.15rem;
 }
 
 .brand-mark {
@@ -256,6 +290,8 @@ body {
 .lang-switch {
   display: inline-flex;
   align-items: center;
+  gap: 0.2rem;
+  padding: 0.25rem;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: var(--surface);
@@ -263,23 +299,41 @@ body {
   backdrop-filter: blur(8px);
 }
 
-.lang-switch__select {
-  appearance: none;
-  border: 0;
+.lang-switch__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
   background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 500;
-  padding: 0.55rem 2rem 0.55rem 0.85rem;
   cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position:
-    calc(100% - 14px) calc(50% - 2px),
-    calc(100% - 9px) calc(50% - 2px);
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
+  opacity: 0.5;
+  transition:
+    opacity 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.lang-switch__btn:hover {
+  opacity: 0.9;
+}
+
+.lang-switch__btn--active {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--border) 80%, var(--ink));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.lang-switch__flag {
+  display: block;
+  width: 1.35rem;
+  height: 0.9rem;
+  border-radius: 0.12rem;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
 }
 
 .loading-copy {
@@ -353,9 +407,13 @@ body {
 }
 
 .route-card--today {
-  border-color: color-mix(in srgb, var(--accent) 55%, white);
-  background: color-mix(in srgb, var(--accent-soft) 70%, white);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow);
+  border: 2px solid #16a34a;
+  background: color-mix(in srgb, #dcfce7 55%, white);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #16a34a 20%, transparent), var(--shadow);
+}
+
+.route-card--today:hover {
+  border-color: #15803d;
 }
 
 .route-card__date {
@@ -375,7 +433,7 @@ body {
   align-items: center;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  background: var(--accent);
+  background: #16a34a;
   color: #fff;
   font-size: 0.72rem;
   font-weight: 700;

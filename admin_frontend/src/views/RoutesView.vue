@@ -22,7 +22,7 @@ import BaseButtons from '@/components/BaseButtons.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import RouteWeekCard from '@/components/RouteWeekCard.vue'
 import RouteAssignModal from '@/components/RouteAssignModal.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 import { applyRouteListPatch, useRealtime } from '@/composables/useRealtime.js'
 
 const { t } = useI18n()
@@ -33,6 +33,7 @@ const weeks = ref([])
 const unscheduled = ref([])
 const loading = ref(false)
 const deleting = ref(false)
+/** @type {import('vue').Ref<null | { type: 'route', route: object } | { type: 'week', week: object, routes: object[] }>} */
 const deleteTarget = ref(null)
 const assignOpen = ref(false)
 const assignMode = ref('import')
@@ -47,6 +48,31 @@ const isDeleteModalActive = computed({
   },
 })
 
+const deleteModalTitle = computed(() =>
+  deleteTarget.value?.type === 'week'
+    ? t('deliveryRoutes.deleteWeekConfirmTitle')
+    : t('deliveryRoutes.deleteConfirmTitle'),
+)
+
+const deleteModalBody = computed(() => {
+  const target = deleteTarget.value
+  if (!target) {
+    return ''
+  }
+  if (target.type === 'week') {
+    return t('deliveryRoutes.deleteWeekConfirmBody', {
+      name: target.week?.title || target.routes[0]?.name || '',
+      count: target.routes.length,
+      weekStart: target.week?.weekStart || '—',
+      weekEnd: target.week?.weekEnd || '—',
+    })
+  }
+  return t('deliveryRoutes.deleteConfirmBody', {
+    name: target.route?.name || '',
+    date: target.route?.scheduledDate || '—',
+  })
+})
+
 const isEmpty = computed(
   () => !loading.value && weeks.value.length === 0 && unscheduled.value.length === 0,
 )
@@ -58,7 +84,7 @@ const loadRoutes = async () => {
     weeks.value = data.weeks ?? []
     unscheduled.value = data.unscheduled ?? []
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.loadFailed'))
+    showApiError(toast, e, t('deliveryRoutes.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -87,7 +113,17 @@ const openMaps = (route) => {
 }
 
 const askDelete = (route) => {
-  deleteTarget.value = route
+  deleteTarget.value = { type: 'route', route }
+}
+
+const askDeleteWeek = (week) => {
+  const routes = (week?.days ?? [])
+    .map((day) => day.route)
+    .filter((route) => route?.id)
+  if (!routes.length) {
+    return
+  }
+  deleteTarget.value = { type: 'week', week, routes }
 }
 
 const confirmDelete = async () => {
@@ -98,12 +134,25 @@ const confirmDelete = async () => {
 
   deleting.value = true
   try {
-    await api.delete(`/api/admin/routes/${target.id}`)
-    toast.success(t('deliveryRoutes.deleted'))
+    if (target.type === 'week') {
+      await Promise.all(
+        target.routes.map((route) => api.delete(`/api/admin/routes/${route.id}`)),
+      )
+      toast.success(t('deliveryRoutes.deletedWeek'))
+    } else {
+      await api.delete(`/api/admin/routes/${target.route.id}`)
+      toast.success(t('deliveryRoutes.deleted'))
+    }
     deleteTarget.value = null
     await loadRoutes()
   } catch (e) {
-    toast.error(e.response?.data?.error || t('deliveryRoutes.deleteFailed'))
+    showApiError(
+      toast,
+      e,
+      target.type === 'week'
+        ? t('deliveryRoutes.deleteWeekFailed')
+        : t('deliveryRoutes.deleteFailed'),
+    )
     deleteTarget.value = null
   } finally {
     deleting.value = false
@@ -195,7 +244,7 @@ onMounted(() => {
           :key="`${week.courier?.id}-${week.weekStart}`"
           :week="week"
           @edit="openEdit"
-          @delete="askDelete"
+          @delete-week="askDeleteWeek"
           @open-maps="openMaps"
           @open-detail="openDetail"
         />
@@ -267,16 +316,14 @@ onMounted(() => {
 
       <CardBoxModal
         v-model="isDeleteModalActive"
-        :title="t('deliveryRoutes.deleteConfirmTitle')"
+        :title="deleteModalTitle"
         button="danger"
         :button-label="t('deliveryRoutes.delete')"
         has-cancel
         :is-processing="deleting"
         @confirm="confirmDelete"
       >
-        <p>
-          {{ t('deliveryRoutes.deleteConfirmBody', { name: deleteTarget?.name || '' }) }}
-        </p>
+        <p>{{ deleteModalBody }}</p>
       </CardBoxModal>
     </SectionMain>
   </LayoutAuthenticated>

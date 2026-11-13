@@ -126,6 +126,7 @@
     "cancel": "Abbrechen",
     "importSuccess": "„{name}“ mit {count} Bestellungen importiert",
     "importFailed": "Routen-PDF konnte nicht importiert werden",
+    "importTimeout": "Import-Timeout bei Google Maps. Bitte erneut versuchen.",
     "addressInvalid": "Adresse in Google Maps nicht gefunden",
     "loadFailed": "Routen konnten nicht geladen werden",
     "loadDetailFailed": "Route konnte nicht geladen werden",
@@ -260,10 +261,15 @@
     "assignmentLockedHelp": "Kurier, Termin und Lager können nach dem Start der Route nicht mehr geändert werden",
     "scheduleRequired": "Kurier und Liefertag sind erforderlich",
     "delete": "Löschen",
+    "deleteWeek": "Wochenrouten löschen",
     "deleteConfirmTitle": "Route löschen?",
-    "deleteConfirmBody": "Route „{name}“ und alle zugehörigen Bestellungen löschen? Dies kann nicht rückgängig gemacht werden.",
+    "deleteConfirmBody": "Route „{name}“ ({date}) und alle zugehörigen Bestellungen löschen? Dies kann nicht rückgängig gemacht werden.",
+    "deleteWeekConfirmTitle": "Wochenrouten löschen?",
+    "deleteWeekConfirmBody": "Alle {count} Routen für „{name}“ ({weekStart} – {weekEnd}) und zugehörige Bestellungen löschen? Dies kann nicht rückgängig gemacht werden.",
     "deleteFailed": "Route konnte nicht gelöscht werden",
-    "deleted": "Route gelöscht"
+    "deleteWeekFailed": "Wochenrouten konnten nicht gelöscht werden",
+    "deleted": "Route gelöscht",
+    "deletedWeek": "Wochenrouten gelöscht"
   },
   "couriers": {
     "title": "Kuriere",

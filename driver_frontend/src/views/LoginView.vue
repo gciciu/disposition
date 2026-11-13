@@ -43,7 +43,6 @@ async function submit() {
 <template>
   <form class="panel" @submit.prevent="submit">
     <div class="panel__header">
-      <p class="brand-mark">{{ t("common.brand") }}</p>
       <h1 class="panel__title">{{ t("login.title") }}</h1>
     </div>
 

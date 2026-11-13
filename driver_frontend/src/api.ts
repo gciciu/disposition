@@ -24,12 +24,45 @@ type JsonBody = Record<string, unknown>;
 
 export class ApiError extends Error {
   status: number;
+  isSessionExpired: boolean;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, isSessionExpired = false) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.isSessionExpired = isSessionExpired;
   }
+}
+
+type SessionHandlers = {
+  onExpired?: (() => void) | null;
+  onTokens?: ((data: LoginResponse) => void) | null;
+};
+
+let onExpired: (() => void) | null = null;
+let onTokens: ((data: LoginResponse) => void) | null = null;
+let refreshPromise: Promise<string> | null = null;
+
+export function setSessionHandlers(handlers: SessionHandlers) {
+  onExpired = handlers.onExpired || null;
+  onTokens = handlers.onTokens || null;
+}
+
+export function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && (error.isSessionExpired || error.status === 401);
+}
+
+function isPublicAuthPath(path: string): boolean {
+  return (
+    path.includes("/api/login") ||
+    path.includes("/api/token/refresh") ||
+    path.includes("/api/token/logout")
+  );
+}
+
+function expireSession(): void {
+  clearStoredSession();
+  onExpired?.();
 }
 
 function activeStorage(): Storage {
@@ -90,6 +123,107 @@ export function updateStoredUser(user: AuthUser): void {
   storage.setItem("auth_user", JSON.stringify(user));
 }
 
+function storageWithRefreshToken(): Storage {
+  if (localStorage.getItem("refresh_token")) {
+    return localStorage;
+  }
+  if (sessionStorage.getItem("refresh_token")) {
+    return sessionStorage;
+  }
+  return localStorage;
+}
+
+function persistRefreshedSession(data: LoginResponse): void {
+  const storage = storageWithRefreshToken();
+  const other = storage === localStorage ? sessionStorage : localStorage;
+
+  for (const key of AUTH_KEYS) {
+    other.removeItem(key);
+  }
+
+  storage.setItem("auth_token", data.token);
+  storage.setItem("refresh_token", data.refresh_token);
+  if (data.user) {
+    storage.setItem("auth_user", JSON.stringify(data.user));
+  }
+
+  onTokens?.(data);
+}
+
+function isAccessTokenExpired(token: string): boolean {
+  try {
+    let part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = part.length % 4;
+    if (pad) {
+      part += "=".repeat(4 - pad);
+    }
+    const json = decodeURIComponent(
+      atob(part)
+        .split("")
+        .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`)
+        .join(""),
+    );
+    const payload = JSON.parse(json) as { exp?: number };
+    return !payload?.exp || payload.exp * 1000 <= Date.now() + 5000;
+  } catch {
+    return true;
+  }
+}
+
+async function refreshAccessToken(): Promise<string> {
+  const refreshToken = readStoredRefreshToken();
+  if (!refreshToken) {
+    throw new Error("missing refresh token");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/token/refresh`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+
+  if (!response.ok) {
+    throw new ApiError(await parseError(response), response.status, response.status === 401);
+  }
+
+  const data = (await response.json()) as LoginResponse;
+  if (!data?.token || !data?.refresh_token) {
+    throw new Error("invalid refresh response");
+  }
+
+  persistRefreshedSession(data);
+  return data.token;
+}
+
+function refreshOnce(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+export async function ensureFreshAccessToken(): Promise<void> {
+  const token = readStoredToken();
+  if (token && !isAccessTokenExpired(token)) {
+    return;
+  }
+  if (!readStoredRefreshToken()) {
+    throw new ApiError("Session expired", 401, true);
+  }
+
+  try {
+    await refreshOnce();
+  } catch (error) {
+    expireSession();
+    throw error;
+  }
+}
+
 async function parseError(response: Response): Promise<string> {
   try {
     const data = (await response.json()) as {
@@ -103,7 +237,19 @@ async function parseError(response: Response): Promise<string> {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+function applyAuthHeaders(headers: Headers, token: string): void {
+  // Send both: some PHP SAPIs strip Authorization ("JWT Token not found").
+  // X-Delivery-Authorization is restored in backend public/index.php.
+  const value = `Bearer ${token}`;
+  headers.set("Authorization", value);
+  headers.set("X-Delivery-Authorization", value);
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  allowRefresh = true,
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
@@ -115,11 +261,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const token = readStoredToken();
   if (token) {
-    // Send both: some PHP SAPIs strip Authorization ("JWT Token not found").
-    // X-Delivery-Authorization is restored in backend public/index.php.
-    const value = `Bearer ${token}`;
-    headers.set("Authorization", value);
-    headers.set("X-Delivery-Authorization", value);
+    applyAuthHeaders(headers, token);
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -128,6 +270,33 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      allowRefresh &&
+      !isPublicAuthPath(path) &&
+      readStoredRefreshToken()
+    ) {
+      try {
+        const nextToken = await refreshOnce();
+        const retryHeaders = new Headers(init.headers);
+        if (!retryHeaders.has("Accept")) {
+          retryHeaders.set("Accept", "application/json");
+        }
+        if (init.body && !isFormData && !retryHeaders.has("Content-Type")) {
+          retryHeaders.set("Content-Type", "application/json");
+        }
+        applyAuthHeaders(retryHeaders, nextToken);
+        return request(path, { ...init, headers: retryHeaders }, false);
+      } catch {
+        expireSession();
+        throw new ApiError("Session expired", 401, true);
+      }
+    }
+
+    if (response.status === 401 && !isPublicAuthPath(path)) {
+      expireSession();
+      throw new ApiError("Session expired", 401, true);
+    }
     throw new ApiError(await parseError(response), response.status);
   }
 

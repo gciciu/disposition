@@ -14,7 +14,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseButtons from '@/components/BaseButtons.vue'
 import BaseLevel from '@/components/BaseLevel.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
-import api from '@/api.js'
+import api, { showApiError } from '@/api.js'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -51,7 +51,7 @@ const loadCouriers = async () => {
     const { data } = await api.get('/api/admin/couriers')
     couriers.value = data.couriers ?? []
   } catch (e) {
-    toast.error(e.response?.data?.error || t('couriers.loadFailed'))
+    showApiError(toast, e, t('couriers.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -100,7 +100,7 @@ const confirmDelete = async () => {
     deleteTarget.value = null
     await loadCouriers()
   } catch (e) {
-    toast.error(e.response?.data?.error || t('couriers.deleteFailed'))
+    showApiError(toast, e, t('couriers.deleteFailed'))
     deleteTarget.value = null
   } finally {
     deleting.value = false
