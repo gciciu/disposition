@@ -3,13 +3,16 @@ nelmio_cors:
         origin_regex: true
         allow_origin: ['%env(CORS_ALLOW_ORIGIN)%']
         allow_methods: ['GET', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']
-        # Wildcard avoids preflight 400 when the browser asks for extra request headers
-        # (Accept, X-Delivery-Authorization, etc.) not listed explicitly.
-        allow_headers: ['*']
+        # String '*' (not ['*'] alone under a null path) — SPA sends Authorization +
+        # X-Delivery-Authorization; browsers also ask for Accept/Content-Type.
+        allow_headers: '*'
         # Firefox/Chrome local-dev preflight sends Access-Control-Request-Private-Network.
         # Default false → Nelmio returns 400 "Private Network Access is not allowed."
         allow_private_network: true
         expose_headers: ['Link']
         max_age: 3600
     paths:
-        '^/': null
+        # Explicit path entry (not null) so defaults cannot be lost on merge.
+        '^/':
+            allow_headers: '*'
+            allow_private_network: true

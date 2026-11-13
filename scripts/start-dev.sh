@@ -393,7 +393,13 @@ verify_cors_config() {
   if ! grep -Eq 'allow_private_network:[[:space:]]*true' "$yaml"; then
     echo "WARNING: nelmio_cors.yaml lacks allow_private_network: true" >&2
     echo "  Authenticated API calls may fail CORS preflight on Ubuntu Chrome/Firefox." >&2
-    echo "  Run: git -C \"$ROOT\" pull --ff-only && (cd \"$ROOT/backend\" && php bin/console cache:clear)" >&2
+  fi
+  # Old trees only allowed Content-Type + Authorization → 400 Unauthorized header x-delivery-authorization
+  if grep -q "allow_headers:.*Content-Type" "$yaml" \
+    && ! grep -Eq "allow_headers:[[:space:]]*['\"]?\*" "$yaml" \
+    && ! grep -qi 'X-Delivery-Authorization' "$yaml"; then
+    echo "WARNING: nelmio_cors.yaml is missing X-Delivery-Authorization / allow_headers: *" >&2
+    echo "  Login works, but authenticated API calls fail CORS preflight." >&2
   fi
 }
 
@@ -446,8 +452,18 @@ cors_preflight_smoke_test() {
     if [[ -n "$body" ]]; then
       echo "  Response: $body" >&2
     fi
-    echo "  Typical cause: missing allow_private_network or stale Symfony cache." >&2
+    if [[ "$body" == *"Unauthorized header"* ]]; then
+      echo "  Cause: nelmio allow_headers rejects a requested header (need '*' or X-Delivery-Authorization)." >&2
+    elif [[ "$body" == *"Private Network"* ]]; then
+      echo "  Cause: allow_private_network is false." >&2
+    else
+      echo "  Typical cause: stale Symfony CORS config cache." >&2
+    fi
     echo "  Fix: cd \"$ROOT/backend\" && php bin/console cache:clear && re-run start-dev." >&2
+    if [[ -f "$ROOT/backend/bin/console" ]]; then
+      echo "  Current nelmio allow_headers:" >&2
+      (cd "$ROOT/backend" && php bin/console debug:config nelmio_cors defaults.allow_headers 2>/dev/null) >&2 || true
+    fi
     return 1
   fi
 

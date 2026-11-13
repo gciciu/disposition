@@ -634,12 +634,18 @@ log "Applying permissions"
 ensure_permissions "$TARGET_DIR"
 install_start_launcher
 
-# Verify CORS config from the cloned tree (Private Network Access preflight on Ubuntu).
+# Verify CORS config from the cloned tree (PNA + custom auth header preflight on Ubuntu).
 if [[ -f "$TARGET_DIR/backend/config/packages/nelmio_cors.yaml" ]]; then
   if grep -Eq 'allow_private_network:[[:space:]]*true' "$TARGET_DIR/backend/config/packages/nelmio_cors.yaml"; then
     info "CORS OK: allow_private_network=true"
   else
     echo "WARNING: nelmio_cors.yaml missing allow_private_network: true — authenticated API calls may fail CORS in Chrome/Firefox." >&2
+  fi
+  if grep -Eq "allow_headers:[[:space:]]*['\"]?\*" "$TARGET_DIR/backend/config/packages/nelmio_cors.yaml" \
+    || grep -qi 'X-Delivery-Authorization' "$TARGET_DIR/backend/config/packages/nelmio_cors.yaml"; then
+    info "CORS OK: allow_headers permits X-Delivery-Authorization"
+  else
+    echo "WARNING: nelmio_cors.yaml may reject X-Delivery-Authorization on preflight." >&2
   fi
 fi
 
