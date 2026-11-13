@@ -1,11 +1,10 @@
 nelmio_cors:
     defaults:
         origin_regex: true
+        # Must stay referenced in every env (Symfony debug 500 if unused).
         allow_origin: ['%env(CORS_ALLOW_ORIGIN)%']
         allow_methods: ['GET', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']
-        # String '*' — SPA sends Authorization + X-Delivery-Authorization.
         allow_headers: '*'
-        # Firefox/Chrome local-dev preflight sends Access-Control-Request-Private-Network.
         allow_private_network: true
         expose_headers: ['Link']
         max_age: 3600
@@ -14,13 +13,13 @@ nelmio_cors:
             allow_headers: '*'
             allow_private_network: true
 
-# Local / Ubuntu install (APP_ENV=dev): allow any Origin and any headers.
-# Production keeps the restricted defaults + CORS_ALLOW_ORIGIN above.
+# Local / Ubuntu (APP_ENV=dev): still use CORS_ALLOW_ORIGIN (keep env referenced).
+# Installer / start-dev set CORS_ALLOW_ORIGIN='^.*$' for fully open local Origins.
 when@dev:
     nelmio_cors:
         defaults:
-            origin_regex: false
-            allow_origin: ['*']
+            origin_regex: true
+            allow_origin: ['%env(CORS_ALLOW_ORIGIN)%']
             allow_methods: ['GET', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
             allow_headers: '*'
             allow_private_network: true
@@ -28,6 +27,5 @@ when@dev:
             max_age: 86400
         paths:
             '^/':
-                allow_origin: ['*']
                 allow_headers: '*'
                 allow_private_network: true

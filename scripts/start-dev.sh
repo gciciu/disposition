@@ -388,8 +388,8 @@ verify_cors_config() {
   if ! grep -Eq 'allow_private_network:[[:space:]]*true' "$yaml"; then
     echo "WARNING: nelmio_cors.yaml lacks allow_private_network: true" >&2
   fi
-  if ! grep -q 'when@dev' "$yaml" || ! grep -q "allow_origin: \['\*'\]" "$yaml"; then
-    echo "WARNING: nelmio_cors.yaml missing when@dev allow_origin: ['*'] (permissive local CORS)." >&2
+  if ! grep -q 'when@dev' "$yaml" || ! grep -q '%env(CORS_ALLOW_ORIGIN)%' "$yaml"; then
+    echo "WARNING: nelmio_cors.yaml must keep %env(CORS_ALLOW_ORIGIN)% (Symfony debug 500 if unused)." >&2
   fi
 }
 
