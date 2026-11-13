@@ -75,7 +75,7 @@ export function useRealtime(options = {}) {
     const hubBase =
       import.meta.env.VITE_MERCURE_URL ||
       ticketPayload?.hubUrl ||
-      'http://127.0.0.1:3000/.well-known/mercure'
+      'http://localhost:3000/.well-known/mercure'
 
     const url = new URL(hubBase)
     const topics = Array.isArray(ticketPayload?.topics) ? ticketPayload.topics : []

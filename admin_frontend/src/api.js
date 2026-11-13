@@ -1,9 +1,8 @@
 import axios from 'axios'
 
-// Prefer 127.0.0.1 over localhost — on Windows localhost can resolve to ::1 while
-// `php -S 127.0.0.1:8080` only accepts IPv4, which breaks login/refresh.
+// Dev default is localhost — start-dev binds API on the same host so IPv4/IPv6 match.
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8080' : '')
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '')
 
 const raw = axios.create({
   baseURL: API_BASE_URL,

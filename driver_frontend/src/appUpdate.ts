@@ -25,7 +25,7 @@ export type UpdateCheckResult =
   | { status: "available"; localVersion: string; remote: DriverAppVersionInfo };
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8080" : "");
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8080" : "");
 
 function parseVersionParts(version: string): number[] {
   return version
