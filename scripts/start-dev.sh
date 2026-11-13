@@ -459,6 +459,10 @@ cors_preflight_smoke_test() {
   )"
   body="$(cat "$tmp" 2>/dev/null || true)"
   acao="$(grep -i '^Access-Control-Allow-Origin:' "$hdr" 2>/dev/null | tr -d '\r' || true)"
+  if [[ -z "$acao" ]]; then
+    # Symfony may emit "access-control-allow-origin:" in mixed case / without space variants
+    acao="$(grep -i 'access-control-allow-origin' "$hdr" 2>/dev/null | tr -d '\r' | head -n1 || true)"
+  fi
   rm -f "$tmp" "$hdr"
 
   if [[ "$status" != "200" && "$status" != "204" ]] || [[ -z "$acao" ]]; then
@@ -466,17 +470,19 @@ cors_preflight_smoke_test() {
     if [[ -n "$acao" ]]; then
       echo "  $acao" >&2
     else
-      echo "  Missing Access-Control-Allow-Origin (browser reports this as a CORS error)." >&2
+      echo "  Missing Access-Control-Allow-Origin (Nelmio checkOrigin failed → 200 without ACAO)." >&2
+      echo "  Check backend/.env.local CORS_ALLOW_ORIGIN (need '^.*$' for open local) + cache:clear." >&2
     fi
-    if [[ "$body" == *"never used"* ]] || [[ "$body" == *"CORS_ALLOW_ORIGIN"* ]]; then
-      echo "  Cause: Symfony unused env CORS_ALLOW_ORIGIN (bad nelmio when@dev override)." >&2
-      echo "  Fix: git pull + ensure nelmio keeps %env(CORS_ALLOW_ORIGIN)% + cache:clear." >&2
+    if [[ -f "$ROOT/backend/.env.local" ]]; then
+      echo "  .env.local: $(grep -E '^CORS_ALLOW_ORIGIN=' "$ROOT/backend/.env.local" || echo '(missing)')" >&2
+    fi
+    if [[ "$body" == *"never used"* ]]; then
+      echo "  Cause: Symfony unused env CORS_ALLOW_ORIGIN." >&2
     elif [[ "$body" == *"Unauthorized header"* ]]; then
       echo "  Cause: allow_headers rejects a requested header." >&2
     elif [[ "$body" == *"Private Network"* ]]; then
       echo "  Cause: allow_private_network is false." >&2
     elif [[ -n "$body" ]]; then
-      # Strip HTML noise for the common Symfony title
       echo "  Response: $(printf '%s' "$body" | tr '\n' ' ' | cut -c1-240)" >&2
     fi
     echo "  Fix: cd \"$ROOT\" && git pull --ff-only && cd backend && php bin/console cache:clear && re-run start-dev." >&2
