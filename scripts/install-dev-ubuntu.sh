@@ -591,14 +591,15 @@ ensure_jwt_keys "$TARGET_DIR/backend" "$TARGET_DIR/scripts/generate-jwt-keys.php
 log "Installing frontend dependencies"
 # Pin Vite env to localhost so an older clone's 127.0.0.1 defaults cannot drift.
 mkdir -p "$TARGET_DIR/admin_frontend" "$TARGET_DIR/driver_frontend"
+# 127.0.0.1 matches php -S / Mercure bind in start-dev (avoids localhost → ::1 mismatch).
 cat >"$TARGET_DIR/admin_frontend/.env.development" <<'EOF'
-VITE_API_URL=http://localhost:8080
-VITE_MERCURE_URL=http://localhost:3000/.well-known/mercure
+VITE_API_URL=http://127.0.0.1:8080
+VITE_MERCURE_URL=http://127.0.0.1:3000/.well-known/mercure
 EOF
 cat >"$TARGET_DIR/driver_frontend/.env.development" <<'EOF'
 # Local Vite + start-dev.sh (Ubuntu). Override at runtime still possible via env.
-VITE_API_URL=http://localhost:8080
-VITE_MERCURE_URL=http://localhost:3000/.well-known/mercure
+VITE_API_URL=http://127.0.0.1:8080
+VITE_MERCURE_URL=http://127.0.0.1:3000/.well-known/mercure
 EOF
 (
   cd "$TARGET_DIR/admin_frontend"

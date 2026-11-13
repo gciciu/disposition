@@ -13,7 +13,8 @@
 # Usage: ./start-dev.sh   OR   ./scripts/start-dev.sh
 # Optional:
 #   SKIP_GIT_PULL=1 / SKIP_MIGRATE=1 / SKIP_CACHE_CLEAR=1 — skip those steps
-#   DEV_HOST=127.0.0.1 — bind/print on 127.0.0.1 instead of localhost
+#   DEV_HOST=127.0.0.1 — UI host printed / Vite --host (default: localhost)
+#   API_BIND=0.0.0.0 — PHP/Mercure listen address (default: 127.0.0.1)
 #   SKIP_CORS_CHECK=1 — skip post-start CORS preflight smoke test
 set -euo pipefail
 
@@ -76,16 +77,20 @@ mkdir -p "$LOG_DIR"
 
 PIDS=()
 
-# Ports / host used by local stack (browser + listeners must match)
+# UI host (browser address bar). API/Mercure bind on IPv4 loopback — reliable on Ubuntu
+# where `php -S localhost` may listen only on ::1 while the browser hits 127.0.0.1.
 DEV_HOST="${DEV_HOST:-localhost}"
+API_BIND="${API_BIND:-127.0.0.1}"
 API_PORT=8080
 ADMIN_PORT=1420
 DRIVER_PORT=1430
 MERCURE_PORT=3000
 MAILPIT_SMTP_PORT=1025
 MAILPIT_UI_PORT=8025
-MERCURE_HUB_URL="http://${DEV_HOST}:${MERCURE_PORT}/.well-known/mercure"
-MAILPIT_SMTP_DSN="smtp://${DEV_HOST}:${MAILPIT_SMTP_PORT}"
+# Frontends always call the bind address (not DEV_HOST) so IPv4/IPv6 cannot diverge.
+API_PUBLIC_URL="http://${API_BIND}:${API_PORT}"
+MERCURE_HUB_URL="http://${API_BIND}:${MERCURE_PORT}/.well-known/mercure"
+MAILPIT_SMTP_DSN="smtp://${API_BIND}:${MAILPIT_SMTP_PORT}"
 
 pids_on_port() {
   local port="$1"
@@ -414,6 +419,17 @@ wait_for_http() {
   return 1
 }
 
+show_api_log_tail() {
+  local log="$LOG_DIR/api.log"
+  if [[ -f "$log" ]]; then
+    echo "---- last lines of $log ----" >&2
+    tail -n 40 "$log" >&2 || true
+    echo "---- end api.log ----" >&2
+  else
+    echo "WARNING: $log missing — API process may have failed to start." >&2
+  fi
+}
+
 cors_preflight_smoke_test() {
   if [[ "${SKIP_CORS_CHECK:-0}" == "1" ]]; then
     echo "Skip CORS smoke test (SKIP_CORS_CHECK=1)"
@@ -427,7 +443,7 @@ cors_preflight_smoke_test() {
   local origin="http://${DEV_HOST}:${ADMIN_PORT}"
   # /api/login is what the browser hits first; missing ACAO usually means HTTP 500
   # (e.g. unused CORS_ALLOW_ORIGIN) — browser only shows a CORS error.
-  local api="http://${DEV_HOST}:${API_PORT}/api/login"
+  local api="${API_PUBLIC_URL}/api/login"
   local tmp hdr status body acao
 
   echo "CORS preflight smoke test → $api (Origin: $origin)"
@@ -512,8 +528,8 @@ fi
   set -a
   # shellcheck disable=SC1091
   source "$ROOT/mercure/.env"
-  SERVER_NAME="http://${DEV_HOST}:${MERCURE_PORT}"
-  # Dev: allow any browser Origin (matches permissive Nelmio when@dev).
+  SERVER_NAME="http://${API_BIND}:${MERCURE_PORT}"
+  # Dev: allow any browser Origin.
   MERCURE_EXTRA_DIRECTIVES="cors_origins *"
   set +a
   cd "$ROOT/mercure"
@@ -527,11 +543,11 @@ if [[ ! -x "$ROOT/mailpit/mailpit" ]]; then
   bash "$(script_path download-mailpit.sh)" || true
 fi
 if [[ -x "$ROOT/mailpit/mailpit" ]]; then
-  start_bg mailpit "$ROOT/mailpit/mailpit" --smtp "${DEV_HOST}:${MAILPIT_SMTP_PORT}" --listen "${DEV_HOST}:${MAILPIT_UI_PORT}"
+  start_bg mailpit "$ROOT/mailpit/mailpit" --smtp "${API_BIND}:${MAILPIT_SMTP_PORT}" --listen "${API_BIND}:${MAILPIT_UI_PORT}"
 fi
 
 # Symfony PHP built-in server (router keeps Authorization for Lexik JWT).
-# Override Mercure/Mailpit URLs for this process so stale .env.local with 127.0.0.1 still works.
+# Bind API_BIND (default 127.0.0.1) — not "localhost" — to avoid ::1-only listeners.
 API_ENV=(
   "MERCURE_URL=${MERCURE_HUB_URL}"
   "MERCURE_PUBLIC_URL=${MERCURE_HUB_URL}"
@@ -539,11 +555,11 @@ API_ENV=(
 if [[ -x "$ROOT/mailpit/mailpit" ]]; then
   API_ENV+=("MAILER_DSN=${MAILPIT_SMTP_DSN}")
 fi
-start_bg api env "${API_ENV[@]}" bash -c "cd \"$ROOT/backend\" && php -S ${DEV_HOST}:${API_PORT} -t public public/router.php"
+start_bg api env "${API_ENV[@]}" bash -c "cd \"$ROOT/backend\" && php -S ${API_BIND}:${API_PORT} -t public public/router.php"
 
-# Frontends — force API/Mercure host so an older clone (127.0.0.1 defaults) still matches.
+# Frontends talk to API_BIND so the socket always matches php -S.
 FRONTEND_ENV=(
-  "VITE_API_URL=http://${DEV_HOST}:${API_PORT}"
+  "VITE_API_URL=${API_PUBLIC_URL}"
   "VITE_MERCURE_URL=${MERCURE_HUB_URL}"
 )
 start_bg admin env "${FRONTEND_ENV[@]}" bash -c "cd \"$ROOT/admin_frontend\" && npm run dev -- --host ${DEV_HOST} --port ${ADMIN_PORT}"
@@ -552,20 +568,23 @@ start_bg driver env "${FRONTEND_ENV[@]}" bash -c "cd \"$ROOT/driver_frontend\" &
 write_pidfile
 
 echo
-echo "Waiting for API..."
-wait_for_http "http://${DEV_HOST}:${API_PORT}/" "API" 60 || true
+echo "Waiting for API at ${API_PUBLIC_URL} ..."
+if ! wait_for_http "${API_PUBLIC_URL}/" "API" 60; then
+  show_api_log_tail
+fi
+# Smoke-test with page Origin (DEV_HOST) → API on API_BIND (cross-origin is OK with CORS ^.*$)
 cors_preflight_smoke_test || true
 
 echo
-echo "Local development is running (host: ${DEV_HOST}):"
+echo "Local development is running:"
 echo "  Admin UI : http://${DEV_HOST}:${ADMIN_PORT}/"
 echo "  Driver UI: http://${DEV_HOST}:${DRIVER_PORT}/"
-echo "  API      : http://${DEV_HOST}:${API_PORT}/"
+echo "  API      : ${API_PUBLIC_URL}/  (php -S ${API_BIND}:${API_PORT})"
 echo "  Mercure  : ${MERCURE_HUB_URL}"
 if [[ -x "$ROOT/mailpit/mailpit" ]]; then
-  echo "  Mailpit  : http://${DEV_HOST}:${MAILPIT_UI_PORT}/"
+  echo "  Mailpit  : http://${API_BIND}:${MAILPIT_UI_PORT}/"
 fi
 echo
-echo "Open ONLY these URLs in the browser (not hostname / LAN IP) — otherwise CORS will fail."
+echo "Open Admin/Driver via http://${DEV_HOST}:… — API calls go to ${API_PUBLIC_URL}."
 echo "Press Ctrl+C to stop all."
 wait
