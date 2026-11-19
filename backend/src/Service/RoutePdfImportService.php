@@ -16,7 +16,6 @@ class RoutePdfImportService
 {
     public function __construct(
         private readonly GoogleMapsService $googleMaps,
-        private readonly DeliveryRouteMetricsService $metrics,
         private readonly WarehouseRepository $warehouses,
     ) {
     }
@@ -114,8 +113,7 @@ class RoutePdfImportService
             $route->setTotalWeightKg(round($ordersWeightSum, 1));
         }
 
-        $this->metrics->rebuild($route);
-
+        // Directions rebuild runs once in DeliveryRouteController::import after origin is applied.
         return $route;
     }
 

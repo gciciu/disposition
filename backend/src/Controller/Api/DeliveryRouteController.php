@@ -218,11 +218,7 @@ class DeliveryRouteController extends AbstractController
             return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
         }
 
-        if ($this->googleMaps->isConfigured()) {
-            $this->metrics->rebuild($route);
-            $this->em->flush();
-        }
-
+        // Read-only: metrics are rebuilt on import / origin update / driver start, not on every GET.
         return $this->json(['route' => $route->toArray()]);
     }
 
