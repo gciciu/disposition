@@ -6,7 +6,6 @@ use App\Entity\Courier;
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
 use App\Enum\RouteOriginType;
-use App\Exception\RouteAddressValidationException;
 use App\Repository\CourierRepository;
 use App\Repository\DeliveryRouteRepository;
 use App\Repository\WarehouseRepository;
@@ -147,12 +146,7 @@ class DeliveryRouteController extends AbstractController
         }
 
         try {
-            $route = $this->importer->import($file);
-        } catch (RouteAddressValidationException $e) {
-            return $this->json([
-                'error' => $e->getMessage(),
-                'invalidAddresses' => $e->getInvalidAddresses(),
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            $imported = $this->importer->import($file);
         } catch (\RuntimeException $e) {
             if (str_contains($e->getMessage(), 'GOOGLE_MAPS_API_KEY')) {
                 return $this->json(['error' => $e->getMessage()], Response::HTTP_SERVICE_UNAVAILABLE);
@@ -164,6 +158,9 @@ class DeliveryRouteController extends AbstractController
         } catch (\Throwable $e) {
             return $this->json(['error' => 'Import failed: '.$e->getMessage()], Response::HTTP_BAD_GATEWAY);
         }
+
+        $route = $imported['route'];
+        $invalidAddresses = $imported['invalidAddresses'];
 
         $originResult = $this->applyOrigin($route, $originPayload);
         if ($originResult instanceof JsonResponse) {
@@ -207,6 +204,7 @@ class DeliveryRouteController extends AbstractController
 
         return $this->json([
             'route' => $route->toArray(),
+            'invalidAddresses' => $invalidAddresses,
         ], Response::HTTP_CREATED);
     }
 
@@ -494,15 +492,17 @@ class DeliveryRouteController extends AbstractController
                 || $previousWarehouseId !== $route->getWarehouse()?->getId();
         }
 
-        if ($originChanged && $this->googleMaps->isConfigured()) {
-            $this->metrics->rebuild($route);
-        }
-
+        $addressChanged = false;
         if (\array_key_exists('orders', $payload)) {
             $ordersResult = $this->applyOrderUpdates($route, $payload['orders']);
             if ($ordersResult instanceof JsonResponse) {
                 return $ordersResult;
             }
+            $addressChanged = (bool) ($ordersResult['addressChanged'] ?? false);
+        }
+
+        if (($originChanged || $addressChanged) && $this->googleMaps->isConfigured()) {
+            $this->metrics->rebuild($route);
         }
 
         $this->em->flush();
@@ -512,8 +512,10 @@ class DeliveryRouteController extends AbstractController
 
     /**
      * @param mixed $ordersPayload
+     *
+     * @return array{addressChanged: bool}|JsonResponse
      */
-    private function applyOrderUpdates(DeliveryRoute $route, mixed $ordersPayload): ?JsonResponse
+    private function applyOrderUpdates(DeliveryRoute $route, mixed $ordersPayload): array|JsonResponse
     {
         if (!\is_array($ordersPayload)) {
             return $this->json(['error' => 'orders must be an array'], Response::HTTP_BAD_REQUEST);
@@ -525,6 +527,8 @@ class DeliveryRouteController extends AbstractController
                 $ordersById[$order->getId()] = $order;
             }
         }
+
+        $addressChanged = false;
 
         foreach ($ordersPayload as $index => $item) {
             if (!\is_array($item)) {
@@ -593,7 +597,105 @@ class DeliveryRouteController extends AbstractController
                 }
                 $order->setComments($commentsResult);
             }
+
+            if (\array_key_exists('address', $item) || \array_key_exists('placeId', $item)) {
+                $addressResult = $this->applyOrderAddress($order, $item, (string) $index);
+                if ($addressResult instanceof JsonResponse) {
+                    return $addressResult;
+                }
+                $addressChanged = true;
+            }
         }
+
+        return ['addressChanged' => $addressChanged];
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function applyOrderAddress(DeliveryOrder $order, array $item, string $index): ?JsonResponse
+    {
+        if ($order->getStatus()->isFinal()) {
+            return $this->json([
+                'error' => sprintf('Cannot change address for completed order %d', $order->getId()),
+            ], Response::HTTP_CONFLICT);
+        }
+
+        if (!$this->googleMaps->isConfigured()) {
+            return $this->json([
+                'error' => 'GOOGLE_MAPS_API_KEY is not configured',
+            ], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+
+        $addressRaw = $item['address'] ?? '';
+        if (!\is_string($addressRaw)) {
+            return $this->json([
+                'error' => sprintf('orders[%s].address must be a string', $index),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+        $address = trim($addressRaw);
+        if ('' === $address) {
+            return $this->json([
+                'error' => sprintf('orders[%s].address is required', $index),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $placeId = null;
+        if (\array_key_exists('placeId', $item) && null !== $item['placeId'] && '' !== $item['placeId']) {
+            if (!\is_string($item['placeId'])) {
+                return $this->json([
+                    'error' => sprintf('orders[%s].placeId must be a string', $index),
+                ], Response::HTTP_BAD_REQUEST);
+            }
+            $placeId = trim($item['placeId']);
+            if ('' === $placeId) {
+                $placeId = null;
+            }
+        }
+
+        if (null !== $placeId) {
+            $details = $this->googleMaps->getPlaceDetails($placeId);
+            if ($details['valid'] ?? false) {
+                $formatted = $details['formattedAddress'] ?? $address;
+                $lat = $details['lat'] ?? null;
+                $lng = $details['lng'] ?? null;
+                if (null !== $lat && null !== $lng && \is_string($formatted) && '' !== $formatted) {
+                    $order
+                        ->setAddress($formatted)
+                        ->setFormattedAddress($formatted)
+                        ->setLat($lat)
+                        ->setLng($lng)
+                        ->setPlaceId($details['placeId'] ?? $placeId)
+                        ->setAddressValid(true);
+
+                    return null;
+                }
+            }
+        }
+
+        $geocode = $this->googleMaps->geocodeAddress($address);
+        if (!($geocode['valid'] ?? false)) {
+            return $this->json([
+                'error' => $geocode['error'] ?? 'Address not found in Google Maps',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $formatted = $geocode['formattedAddress'] ?? $address;
+        $lat = $geocode['lat'] ?? null;
+        $lng = $geocode['lng'] ?? null;
+        if (null === $lat || null === $lng || !\is_string($formatted) || '' === $formatted) {
+            return $this->json([
+                'error' => 'Address not found in Google Maps',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $order
+            ->setAddress($formatted)
+            ->setFormattedAddress($formatted)
+            ->setLat($lat)
+            ->setLng($lng)
+            ->setPlaceId($geocode['placeId'] ?? $placeId)
+            ->setAddressValid(true);
 
         return null;
     }

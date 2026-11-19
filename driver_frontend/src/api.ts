@@ -376,12 +376,16 @@ export type RouteOrder = {
   address: string;
   formattedAddress: string | null;
   addressValid: boolean;
+  lat?: number | null;
+  lng?: number | null;
+  placeId?: string | null;
   products: string[];
   productBackgroundColors?: (string | null)[] | null;
   deliveredProductIndexes: number[] | null;
   accessoryProductIndexes?: number[] | null;
   travelDurationText: string | null;
   travelDistanceText: string | null;
+  arrivalTime?: string | null;
   status: OrderStatus;
   isExchange?: boolean;
   completedAt: string | null;
@@ -468,9 +472,12 @@ export function refuseOrderRequest(
   );
 }
 
-export function reportDelayRequest(routeId: number, minutes: number) {
-  return request<{ route: RouteDetail }>(`/api/driver/routes/${routeId}/delay`, {
-    method: "POST",
-    body: JSON.stringify({ minutes }),
-  });
+export function adjustArrivalRequest(routeId: number, orderId: number, arrivalTime: string) {
+  return request<{ route: RouteDetail }>(
+    `/api/driver/routes/${routeId}/orders/${orderId}/arrival`,
+    {
+      method: "POST",
+      body: JSON.stringify({ arrivalTime }),
+    },
+  );
 }

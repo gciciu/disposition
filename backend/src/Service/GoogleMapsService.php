@@ -42,7 +42,8 @@ class GoogleMapsService
             'query' => [
                 'input' => $input,
                 'language' => 'de',
-                'components' => 'country:de',
+                // Route sheets include DE and AT stops.
+                'components' => 'country:de|country:at',
                 'types' => 'address',
                 'key' => $this->apiKey,
             ],
@@ -249,6 +250,12 @@ class GoogleMapsService
     }
 
     /**
+     * Google Directions allows at most 25 intermediate waypoints (+ origin + destination).
+     * Longer delivery routes are split into overlapping chunks and legs are concatenated.
+     */
+    private const DIRECTIONS_MAX_POINTS = 27;
+
+    /**
      * @param list<array{formattedAddress: string, lat: float, lng: float, placeId?: string|null}> $points
      *
      * @return array{
@@ -265,6 +272,71 @@ class GoogleMapsService
     {
         if (\count($points) < 2) {
             throw new \InvalidArgumentException('At least two valid addresses are required');
+        }
+
+        $segments = [];
+        $totalDurationSeconds = 0;
+        $totalDistanceMeters = 0;
+        $overviewPolyline = null;
+        $pointCount = \count($points);
+        // Overlap by 1 so the next chunk starts where the previous ended.
+        $step = self::DIRECTIONS_MAX_POINTS - 1;
+
+        for ($start = 0; $start < $pointCount - 1; $start += $step) {
+            $end = min($start + self::DIRECTIONS_MAX_POINTS - 1, $pointCount - 1);
+            $chunk = \array_slice($points, $start, $end - $start + 1);
+            $chunkResult = $this->requestTruckRouteChunk($chunk);
+
+            foreach ($chunkResult['segments'] as $segment) {
+                $fromIndex = $start + (int) $segment['fromIndex'];
+                $toIndex = $start + (int) $segment['toIndex'];
+                $segments[] = [
+                    ...$segment,
+                    'fromIndex' => $fromIndex,
+                    'toIndex' => $toIndex,
+                ];
+                $totalDurationSeconds += (int) $segment['durationSeconds'];
+                $totalDistanceMeters += (int) $segment['distanceMeters'];
+            }
+
+            if (null === $overviewPolyline && null !== $chunkResult['overviewPolyline']) {
+                $overviewPolyline = $chunkResult['overviewPolyline'];
+            }
+
+            if ($end >= $pointCount - 1) {
+                break;
+            }
+        }
+
+        return [
+            'segments' => $segments,
+            'totalDurationSeconds' => $totalDurationSeconds,
+            'totalDurationText' => $this->formatDuration($totalDurationSeconds),
+            'totalDistanceMeters' => $totalDistanceMeters,
+            'totalDistanceText' => $this->formatDistance($totalDistanceMeters),
+            'mapsUrl' => $this->buildGoogleMapsUrl($points),
+            'overviewPolyline' => $overviewPolyline,
+        ];
+    }
+
+    /**
+     * @param list<array{formattedAddress: string, lat: float, lng: float, placeId?: string|null}> $points
+     *
+     * @return array{
+     *     segments: list<array<string, mixed>>,
+     *     overviewPolyline: string|null
+     * }
+     */
+    private function requestTruckRouteChunk(array $points): array
+    {
+        if (\count($points) < 2) {
+            throw new \InvalidArgumentException('At least two valid addresses are required');
+        }
+        if (\count($points) > self::DIRECTIONS_MAX_POINTS) {
+            throw new \InvalidArgumentException(sprintf(
+                'Directions chunk exceeds %d points',
+                self::DIRECTIONS_MAX_POINTS,
+            ));
         }
 
         $origin = $this->pointAsLatLng($points[0]);
@@ -312,15 +384,11 @@ class GoogleMapsService
 
         $legs = $data['routes'][0]['legs'];
         $segments = [];
-        $totalDurationSeconds = 0;
-        $totalDistanceMeters = 0;
 
         foreach ($legs as $index => $leg) {
             // Prefer traffic-aware duration when Google returns it (requires departure_time).
             $durationSeconds = (int) ($leg['duration_in_traffic']['value'] ?? $leg['duration']['value'] ?? 0);
             $distanceMeters = (int) ($leg['distance']['value'] ?? 0);
-            $totalDurationSeconds += $durationSeconds;
-            $totalDistanceMeters += $distanceMeters;
 
             $fromAddress = $leg['start_address'] ?? ($points[$index]['formattedAddress'] ?? '');
             $toAddress = $leg['end_address'] ?? ($points[$index + 1]['formattedAddress'] ?? '');
@@ -343,11 +411,6 @@ class GoogleMapsService
 
         return [
             'segments' => $segments,
-            'totalDurationSeconds' => $totalDurationSeconds,
-            'totalDurationText' => $this->formatDuration($totalDurationSeconds),
-            'totalDistanceMeters' => $totalDistanceMeters,
-            'totalDistanceText' => $this->formatDistance($totalDistanceMeters),
-            'mapsUrl' => $this->buildGoogleMapsUrl($points),
             'overviewPolyline' => $overviewPolyline,
         ];
     }
@@ -448,26 +511,20 @@ class GoogleMapsService
             $query['path'] = 'weight:4|color:0x1a73e8ff|'.implode('|', $coords);
         }
 
-        // Unlabeled markers — Static Maps only allows a single-char label; we stamp
-        // full route-sheet numbers afterwards with GD.
-        $markerParams = $this->buildStaticMapMarkers($points, $firstIsOrigin);
-
+        // No Google pin markers — Static Maps only allows a single-char label, and
+        // pins sit above the lat/lng tip. We draw numbered circular badges with GD.
         $parts = [];
         foreach ($query as $key => $value) {
             $parts[] = rawurlencode((string) $key).'='.rawurlencode((string) $value);
         }
-        foreach ($markerParams as $marker) {
-            $parts[] = 'markers='.rawurlencode($marker);
-        }
 
         $url = self::STATIC_MAP_URL.'?'.implode('&', $parts);
-        if (\strlen($url) > 8190) {
+        if (\strlen($url) > 8190 && isset($query['path'])) {
+            // Drop the encoded path if the request is still too long; keep the basemap.
+            unset($query['path']);
             $parts = [];
             foreach ($query as $key => $value) {
                 $parts[] = rawurlencode((string) $key).'='.rawurlencode((string) $value);
-            }
-            foreach ($this->buildStaticMapMarkers($points, $firstIsOrigin, true) as $marker) {
-                $parts[] = 'markers='.rawurlencode($marker);
             }
             $url = self::STATIC_MAP_URL.'?'.implode('&', $parts);
         }
@@ -596,40 +653,7 @@ class GoogleMapsService
     }
 
     /**
-     * @param list<array{lat: float, lng: float, label?: string|null}> $points
-     *
-     * @return list<string>
-     */
-    private function buildStaticMapMarkers(array $points, bool $firstIsOrigin, bool $startEndOnly = false): array
-    {
-        $markers = [];
-        $lastIndex = \count($points) - 1;
-
-        foreach ($points as $index => $point) {
-            $coord = sprintf('%F,%F', $point['lat'], $point['lng']);
-
-            if ($startEndOnly) {
-                if (0 === $index) {
-                    $markers[] = 'color:0x34a853|size:mid|'.$coord;
-                } elseif ($index === $lastIndex) {
-                    $markers[] = 'color:0xea4335|size:mid|'.$coord;
-                }
-                continue;
-            }
-
-            if ($firstIsOrigin && 0 === $index) {
-                $markers[] = 'color:0x34a853|size:mid|'.$coord;
-                continue;
-            }
-
-            $markers[] = 'color:0x4285f4|size:mid|'.$coord;
-        }
-
-        return $markers;
-    }
-
-    /**
-     * Draw full route-sheet position numbers on the Static Maps image.
+     * Draw numbered circular stop badges (and optional origin "S") on the Static Maps image.
      *
      * @param list<array{lat: float, lng: float, label?: string|null}> $points
      */
@@ -655,7 +679,9 @@ class GoogleMapsService
 
         imagesavealpha($image, true);
         $white = imagecolorallocate($image, 255, 255, 255);
-        $shadow = imagecolorallocate($image, 20, 20, 20);
+        $blue = imagecolorallocate($image, 66, 133, 244);
+        $green = imagecolorallocate($image, 52, 168, 83);
+        $shadow = imagecolorallocatealpha($image, 20, 20, 20, 60);
 
         foreach ($points as $index => $point) {
             $isOrigin = $firstIsOrigin && 0 === $index;
@@ -674,13 +700,26 @@ class GoogleMapsService
                 $scale,
             );
 
-            $font = \strlen($label) >= 2 ? 3 : 4;
+            $cx = (int) round($px['x']);
+            $cy = (int) round($px['y']);
+            $font = \strlen($label) >= 3 ? 2 : (\strlen($label) >= 2 ? 3 : 4);
+            $radius = \strlen($label) >= 3 ? 11 : (\strlen($label) >= 2 ? 12 : 11);
+            $fill = $isOrigin ? $green : $blue;
+
+            imagefilledellipse($image, $cx + 1, $cy + 1, $radius * 2, $radius * 2, $shadow);
+            imagefilledellipse($image, $cx, $cy, $radius * 2, $radius * 2, $fill);
+            imageellipse($image, $cx, $cy, $radius * 2, $radius * 2, $white);
+
             $tw = imagefontwidth($font) * \strlen($label);
             $th = imagefontheight($font);
-            $x = (int) round($px['x'] - $tw / 2);
-            $y = (int) round($px['y'] - $th / 2);
-            imagestring($image, $font, $x + 1, $y + 1, $label, $shadow);
-            imagestring($image, $font, $x, $y, $label, $white);
+            imagestring(
+                $image,
+                $font,
+                (int) ($cx - $tw / 2),
+                (int) ($cy - $th / 2),
+                $label,
+                $white,
+            );
         }
 
         ob_start();

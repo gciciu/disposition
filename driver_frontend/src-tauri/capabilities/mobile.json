@@ -6,6 +6,9 @@
   "platforms": ["android"],
   "permissions": [
     "core:default",
+    "opener:default",
+    "opener:allow-open-url",
+    "opener:allow-default-urls",
     "os:default",
     "upload:default",
     "android-installer:default"

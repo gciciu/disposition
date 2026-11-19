@@ -79,6 +79,13 @@ class DeliveryOrder
     private int $unloadingDurationMinutes = self::UNLOADING_DURATION_DEFAULT;
 
     /**
+     * Extra minutes the courier added to this stop's planned arrival
+     * (shifts this stop and all following stops).
+     */
+    #[ORM\Column(options: ['default' => 0])]
+    private int $arrivalDelayMinutes = 0;
+
+    /**
      * Colored remark list, e.g. [{"id":"…","text":"Tel. Avis. 1 Tag vorher","color":"amber"}].
      *
      * @var list<array{id: string, text: string, color: string}>
@@ -341,6 +348,27 @@ class DeliveryOrder
         }
 
         $this->unloadingDurationMinutes = $unloadingDurationMinutes;
+
+        return $this;
+    }
+
+    public function getArrivalDelayMinutes(): int
+    {
+        return $this->arrivalDelayMinutes;
+    }
+
+    public function setArrivalDelayMinutes(int $arrivalDelayMinutes): static
+    {
+        $this->arrivalDelayMinutes = max(0, $arrivalDelayMinutes);
+
+        return $this;
+    }
+
+    public function addArrivalDelayMinutes(int $minutes): static
+    {
+        if ($minutes > 0) {
+            $this->arrivalDelayMinutes += $minutes;
+        }
 
         return $this;
     }

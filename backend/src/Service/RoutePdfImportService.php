@@ -5,7 +5,6 @@ namespace App\Service;
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
 use App\Enum\RouteOriginType;
-use App\Exception\RouteAddressValidationException;
 use App\Repository\WarehouseRepository;
 use Smalot\PdfParser\Page;
 use Smalot\PdfParser\Parser;
@@ -20,7 +19,18 @@ class RoutePdfImportService
     ) {
     }
 
-    public function import(UploadedFile $file): DeliveryRoute
+    /**
+     * @return array{
+     *     route: DeliveryRoute,
+     *     invalidAddresses: list<array{
+     *         position: int,
+     *         clientName: string,
+     *         address: string,
+     *         error: string
+     *     }>
+     * }
+     */
+    public function import(UploadedFile $file): array
     {
         if (!$this->googleMaps->isConfigured()) {
             throw new \RuntimeException('GOOGLE_MAPS_API_KEY is not configured');
@@ -40,28 +50,55 @@ class RoutePdfImportService
         $invalidAddresses = [];
 
         foreach ($parsed['orders'] as $orderData) {
-            $geocode = $this->googleMaps->geocodeAddress($orderData['address']);
+            $address = trim((string) ($orderData['address'] ?? ''));
+            if ('' === $address) {
+                $invalidAddresses[] = [
+                    'position' => $orderData['position'],
+                    'clientName' => $orderData['clientName'],
+                    'address' => '',
+                    'error' => 'Address is missing',
+                ];
+                $geocodedOrders[] = [
+                    ...$orderData,
+                    'address' => '',
+                    'formattedAddress' => null,
+                    'lat' => null,
+                    'lng' => null,
+                    'placeId' => null,
+                    'addressValid' => false,
+                ];
+                continue;
+            }
+
+            $geocode = $this->googleMaps->geocodeAddress($address);
             if (!$geocode['valid']) {
                 $invalidAddresses[] = [
                     'position' => $orderData['position'],
                     'clientName' => $orderData['clientName'],
-                    'address' => $orderData['address'],
+                    'address' => $address,
                     'error' => $geocode['error'] ?? 'Address not found in Google Maps',
+                ];
+                $geocodedOrders[] = [
+                    ...$orderData,
+                    'address' => $address,
+                    'formattedAddress' => null,
+                    'lat' => null,
+                    'lng' => null,
+                    'placeId' => null,
+                    'addressValid' => false,
                 ];
                 continue;
             }
 
             $geocodedOrders[] = [
                 ...$orderData,
-                'formattedAddress' => $geocode['formattedAddress'] ?? $orderData['address'],
+                'address' => $address,
+                'formattedAddress' => $geocode['formattedAddress'] ?? $address,
                 'lat' => $geocode['lat'] ?? null,
                 'lng' => $geocode['lng'] ?? null,
                 'placeId' => $geocode['placeId'] ?? null,
+                'addressValid' => true,
             ];
-        }
-
-        if ([] !== $invalidAddresses) {
-            throw new RouteAddressValidationException($invalidAddresses);
         }
 
         $defaultWarehouse = $this->warehouses->findDefault();
@@ -94,12 +131,12 @@ class RoutePdfImportService
                 ->setClientName($orderData['clientName'])
                 ->setPhone($orderData['phone'])
                 ->setEmail($orderData['email'] ?? null)
-                ->setAddress($orderData['address'])
-                ->setAddressValid(true)
-                ->setFormattedAddress($orderData['formattedAddress'])
-                ->setLat($orderData['lat'])
-                ->setLng($orderData['lng'])
-                ->setPlaceId($orderData['placeId'])
+                ->setAddress((string) ($orderData['address'] ?? ''))
+                ->setAddressValid((bool) ($orderData['addressValid'] ?? false))
+                ->setFormattedAddress($orderData['formattedAddress'] ?? null)
+                ->setLat($orderData['lat'] ?? null)
+                ->setLng($orderData['lng'] ?? null)
+                ->setPlaceId($orderData['placeId'] ?? null)
                 ->setWeightKg($orderWeight)
                 ->setComments($this->buildImportComments($orderData['comments'] ?? []))
                 ->setProducts($orderData['products'])
@@ -114,7 +151,10 @@ class RoutePdfImportService
         }
 
         // Directions rebuild runs once in DeliveryRouteController::import after origin is applied.
-        return $route;
+        return [
+            'route' => $route,
+            'invalidAddresses' => $invalidAddresses,
+        ];
     }
 
     private function extractText(UploadedFile $file): string
@@ -248,6 +288,15 @@ class RoutePdfImportService
                     continue;
                 }
 
+                // Missing address: phone/email may follow name lines directly.
+                if ($this->isContactLine($line)) {
+                    $current['contactParts'][] = $line;
+                    $section = 'contact';
+                    continue;
+                }
+
+                // Company + recipient often span two lines, e.g.
+                // "Salon Gutekunst, Julia Spatz" or "GmbH, Daniel Kathrein".
                 $current['nameParts'][] = $line;
                 continue;
             }
@@ -258,6 +307,7 @@ class RoutePdfImportService
                     $section = 'contact';
                     continue;
                 }
+                // Street continuation / house number — keep with address until phone,email.
                 $current['addressParts'][] = $line;
                 continue;
             }
@@ -561,18 +611,19 @@ class RoutePdfImportService
 
     private function isAddressStart(string $line): bool
     {
-        return 1 === preg_match('/^\d{5}\b/u', $line);
+        // DE PLZ is 5 digits; AT PLZ is 4. Always followed by a city name.
+        return 1 === preg_match('/^\d{4,5}\s+\p{L}/u', $line);
     }
 
     /**
      * Name and address may share one line: "Client Name, 12345 City, Street".
-     * Split at the first comma that is followed by a German PLZ.
+     * Split at the first comma that is followed by a DE/AT postal code + city.
      *
      * @return array{name: string, address: string}|null
      */
     private function splitNameAndAddress(string $line): ?array
     {
-        if (!preg_match('/^(.*),\s*(\d{5}\b.*)$/u', $line, $m)) {
+        if (!preg_match('/^(.*),\s*(\d{4,5}\s+\p{L}.*)$/u', $line, $m)) {
             return null;
         }
 
@@ -588,6 +639,7 @@ class RoutePdfImportService
             return true;
         }
 
+        // MySpiegel contact: phone, then comma, then email (email may be on next line).
         // Phone-like: starts with + or digit, contains enough digits, may end with comma.
         $digits = preg_replace('/\D+/', '', $line) ?? '';
         if (\strlen($digits) >= 6 && 1 === preg_match('/^[+\d]/u', $line)) {
@@ -803,9 +855,8 @@ class RoutePdfImportService
         if ('' === $clientName) {
             throw new \InvalidArgumentException(sprintf('Order position %d has no client name', $current['position']));
         }
-        if ('' === $address) {
-            throw new \InvalidArgumentException(sprintf('Order position %d has no address', $current['position']));
-        }
+
+        // Missing address is allowed: import continues with addressValid=false for manual fix.
 
         /** @var list<string> $products */
         $products = array_values(array_filter(

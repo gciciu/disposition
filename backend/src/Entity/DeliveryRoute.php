@@ -77,7 +77,7 @@ class DeliveryRoute
     #[ORM\Column(type: 'float', nullable: true)]
     private ?float $totalWeightKg = null;
 
-    /** Cumulative courier-reported delay in minutes (shifts all planned arrivals). */
+    /** Cumulative courier-reported delay in minutes (admin/display; applied via order arrivalDelayMinutes). */
     #[ORM\Column(options: ['default' => 0])]
     private int $delayMinutes = 0;
 
@@ -517,8 +517,11 @@ class DeliveryRoute
      * Planned arrival clock times (H:i) keyed by order id.
      *
      * Before any stop is finished:
-     *   arrival(1) = scheduledStartTime + delay + travel_to(1)
-     *   arrival(n) = arrival(n-1) + unload(n-1) + travel_to(n)
+     *   arrival(1) = scheduledStartTime + travel_to(1) + arrivalDelay(1)
+     *   arrival(n) = arrival(n-1) + unload(n-1) + travel_to(n) + arrivalDelay(n)
+     *
+     * Route-level delayMinutes is the sum of courier-reported delays (display /
+     * admin); per-stop arrivalDelayMinutes is what shifts the cascade.
      *
      * After a stop is delivered/refused, remaining arrivals are rebased from that
      * stop's completedAt (leave time), then travel + planned unload cascade again.
@@ -533,8 +536,10 @@ class DeliveryRoute
         $cursorSeconds = null;
         if (null !== $this->scheduledStartTime) {
             $cursorSeconds = ((int) $this->scheduledStartTime->format('H')) * 3600
-                + ((int) $this->scheduledStartTime->format('i')) * 60
-                + ($this->delayMinutes * 60);
+                + ((int) $this->scheduledStartTime->format('i')) * 60;
+        } elseif (null !== $this->startedAt) {
+            // Fallback when admin did not set a planned start time.
+            $cursorSeconds = self::secondsFromMidnight($this->startedAt);
         }
 
         foreach ($orders as $order) {
@@ -544,6 +549,7 @@ class DeliveryRoute
             if ($isFinished) {
                 if (null !== $cursorSeconds) {
                     $cursorSeconds += $order->getTravelDurationSeconds() ?? 0;
+                    $cursorSeconds += $order->getArrivalDelayMinutes() * 60;
                     if (null !== $orderId) {
                         $result[$orderId] = self::formatClockTime($cursorSeconds);
                     }
@@ -564,6 +570,7 @@ class DeliveryRoute
             }
 
             $cursorSeconds += $order->getTravelDurationSeconds() ?? 0;
+            $cursorSeconds += $order->getArrivalDelayMinutes() * 60;
             if (null !== $orderId) {
                 $result[$orderId] = self::formatClockTime($cursorSeconds);
             }

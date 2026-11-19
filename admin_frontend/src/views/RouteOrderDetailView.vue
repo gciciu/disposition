@@ -9,6 +9,7 @@ import {
   mdiCheckCircle,
   mdiLoading,
   mdiCalculator,
+  mdiContentSave,
 } from '@mdi/js'
 import { useToast } from 'vue-toastification'
 import SectionMain from '@/components/SectionMain.vue'
@@ -19,6 +20,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import DeliveryProofThumb from '@/components/DeliveryProofThumb.vue'
 import OrderCommentsModal from '@/components/OrderCommentsModal.vue'
+import AddressAutocomplete from '@/components/AddressAutocomplete.vue'
 import api, { showApiError } from '@/api.js'
 import { useRealtime } from '@/composables/useRealtime.js'
 import { withoutCountry } from '@/utils/address.js'
@@ -34,6 +36,9 @@ const loading = ref(false)
 const unloadDraft = ref(null)
 const applyingUnload = ref(false)
 const commentsModalOpen = ref(false)
+const addressDraft = ref('')
+const addressPlaceId = ref(null)
+const savingAddress = ref(false)
 
 const UNLOAD_MIN = 1
 const UNLOAD_MAX = 60
@@ -217,11 +222,59 @@ const onCommentsSaved = (routeData) => {
   }
   routeDetail.value = routeData
   syncUnloadDraft({ preserveDirty: true })
+  syncAddressDraft()
 }
 
 const isOrderFinished = computed(
   () => order.value?.status === 'delivered' || order.value?.status === 'refused',
 )
+
+const syncAddressDraft = () => {
+  if (!order.value || order.value.addressValid) {
+    addressDraft.value = ''
+    addressPlaceId.value = null
+    return
+  }
+  addressDraft.value = withoutCountry(order.value.formattedAddress || order.value.address) || ''
+  addressPlaceId.value = order.value.placeId ?? null
+}
+
+const canSaveAddress = computed(
+  () =>
+    Boolean(order.value) &&
+    !order.value.addressValid &&
+    !isOrderFinished.value &&
+    !savingAddress.value &&
+    Boolean(addressDraft.value.trim()),
+)
+
+const saveOrderAddress = async () => {
+  if (!routeDetail.value?.id || !order.value?.id || !canSaveAddress.value) {
+    return
+  }
+
+  savingAddress.value = true
+  try {
+    const payload = {
+      id: order.value.id,
+      address: addressDraft.value.trim(),
+    }
+    if (addressPlaceId.value) {
+      payload.placeId = addressPlaceId.value
+    }
+    const { data } = await api.put(`/api/admin/routes/${routeDetail.value.id}`, {
+      orders: [payload],
+    })
+    routeDetail.value = data.route
+    syncUnloadDraft({ preserveDirty: true })
+    syncAddressDraft()
+    toast.success(t('deliveryRoutes.addressSaved'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.addressSaveFailed'))
+  } finally {
+    savingAddress.value = false
+  }
+}
 
 const applyUnload = async () => {
   if (
@@ -274,6 +327,7 @@ const loadRoute = async () => {
       toast.error(t('deliveryRoutes.loadOrderFailed'))
     } else {
       syncUnloadDraft()
+      syncAddressDraft()
     }
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
@@ -302,6 +356,7 @@ const applyRealtimePayload = (event, data) => {
   ) {
     routeDetail.value = data.route
     syncUnloadDraft({ preserveDirty: true })
+    syncAddressDraft()
     return
   }
 
@@ -316,6 +371,7 @@ const applyRealtimePayload = (event, data) => {
     }
     routeDetail.value = next
     syncUnloadDraft({ preserveDirty: true })
+    syncAddressDraft()
   }
 }
 
@@ -342,6 +398,7 @@ watch(
   () => order.value?.id,
   () => {
     syncUnloadDraft()
+    syncAddressDraft()
   },
 )
 </script>
@@ -480,22 +537,43 @@ watch(
             </div>
             <div class="sm:col-span-2">
               <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.address') }}</div>
-              <div class="mt-1 flex items-start gap-2">
+              <div
+                v-if="order.addressValid"
+                class="mt-1 flex items-start gap-2"
+              >
                 <BaseIcon
-                  :path="order.addressValid ? mdiCheckCircle : mdiAlertCircle"
-                  :class="order.addressValid ? 'text-emerald-600' : 'text-red-600'"
+                  :path="mdiCheckCircle"
+                  class="mt-0.5 shrink-0 text-emerald-600"
                   size="18"
-                  class="mt-0.5 shrink-0"
                 />
-                <div>
-                  <div>{{ displayAddress(order) }}</div>
-                  <div
-                    v-if="!order.addressValid"
-                    class="mt-1 text-xs text-red-600"
-                  >
-                    {{ t('deliveryRoutes.addressInvalid') }}
-                  </div>
+                <div>{{ displayAddress(order) }}</div>
+              </div>
+              <div
+                v-else
+                class="mt-1 space-y-2"
+              >
+                <div class="flex items-start gap-2 text-xs text-red-600">
+                  <BaseIcon
+                    :path="mdiAlertCircle"
+                    class="mt-0.5 shrink-0"
+                    size="18"
+                  />
+                  <span>{{ t('deliveryRoutes.addressMissingHelp') }}</span>
                 </div>
+                <AddressAutocomplete
+                  v-model="addressDraft"
+                  v-model:place-id="addressPlaceId"
+                  :placeholder="t('deliveryRoutes.addressPlaceholder')"
+                  :disabled="isOrderFinished || savingAddress"
+                />
+                <BaseButton
+                  color="info"
+                  :label="t('deliveryRoutes.addressSave')"
+                  :icon="savingAddress ? mdiLoading : mdiContentSave"
+                  :disabled="!canSaveAddress"
+                  small
+                  @click="saveOrderAddress"
+                />
               </div>
             </div>
             <div class="sm:col-span-2 lg:col-span-3">

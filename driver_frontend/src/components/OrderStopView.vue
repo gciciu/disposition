@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { RouteOrder } from "../api";
 import { dialPhone } from "../dialPhone";
+import { buildStopMapsUrl, openGoogleMapsUrl } from "../openExternalUrl";
 import { withoutCountry } from "../utils/address";
 
 const props = defineProps<{
@@ -147,6 +148,18 @@ const onCall = (event: Event) => {
   }
   void dialPhone(props.order.phone);
 };
+
+const stopMapsUrl = computed(() => buildStopMapsUrl(props.order));
+
+const openStopMaps = async (event: Event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const url = stopMapsUrl.value;
+  if (!url) {
+    return;
+  }
+  await openGoogleMapsUrl(url);
+};
 </script>
 
 <template>
@@ -176,17 +189,38 @@ const onCall = (event: Event) => {
       <div class="stop-card__body">
         <div class="stop-card__heading">
           <div class="stop-card__name">{{ order.clientName }}</div>
-          <div class="stop-card__badges">
-            <span v-if="order.isExchange" class="stop-card__badge stop-card__badge--exchange">
-              {{ t("delivery.exchange") }}
-            </span>
-            <span
-              v-if="isClosed"
-              class="stop-card__badge"
-              :class="{ 'stop-card__badge--refused': isRefused }"
+          <div class="stop-card__aside">
+            <div class="stop-card__badges">
+              <span v-if="order.isExchange" class="stop-card__badge stop-card__badge--exchange">
+                {{ t("delivery.exchange") }}
+              </span>
+              <span
+                v-if="isClosed"
+                class="stop-card__badge"
+                :class="{ 'stop-card__badge--refused': isRefused }"
+              >
+                {{ statusLabel }}
+              </span>
+            </div>
+            <button
+              v-if="stopMapsUrl"
+              class="stop-card__map-btn"
+              type="button"
+              :aria-label="t('routes.openStopMaps')"
+              :title="t('routes.openStopMaps')"
+              @click="openStopMaps"
             >
-              {{ statusLabel }}
-            </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                <path
+                  d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11z"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </button>
           </div>
         </div>
         <a
@@ -198,6 +232,16 @@ const onCall = (event: Event) => {
           {{ order.phone }}
         </a>
         <div class="stop-card__address">{{ displayAddress }}</div>
+        <div class="stop-card__footer">
+          <div class="stop-card__arrival-line">
+            <div
+              class="stop-card__arrival"
+              :title="t('routes.arrivalTime', { time: order.arrivalTime || '—' })"
+            >
+              {{ order.arrivalTime || "—" }}
+            </div>
+          </div>
+        </div>
       </div>
     </article>
 

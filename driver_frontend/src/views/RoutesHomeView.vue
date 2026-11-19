@@ -2,13 +2,13 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
+  adjustArrivalRequest,
   completeOrderRequest,
   continueRouteRequest,
   fetchMyRouteRequest,
   fetchMyRoutesRequest,
   finishRouteRequest,
   refuseOrderRequest,
-  reportDelayRequest,
   startRouteRequest,
   type ProofType,
   type RouteDetail,
@@ -16,15 +16,16 @@ import {
   type RouteOrder,
 } from "../api";
 import { useAuth } from "../auth";
+import AdjustArrivalSheet from "../components/AdjustArrivalSheet.vue";
 import ConfirmActionSheet from "../components/ConfirmActionSheet.vue";
 import ConfirmDeliverySheet from "../components/ConfirmDeliverySheet.vue";
 import OrderStopView from "../components/OrderStopView.vue";
 import RefuseDeliverySheet from "../components/RefuseDeliverySheet.vue";
-import ReportDelaySheet from "../components/ReportDelaySheet.vue";
 import SignaturePadModal from "../components/SignaturePadModal.vue";
 import { GeolocationError, getCurrentPosition } from "../geolocation";
 import { toProofJpeg } from "../imageProof";
 import { displayApiError } from "../i18n";
+import { buildStopMapsUrl, openGoogleMapsUrl } from "../openExternalUrl";
 import { withoutCountry } from "../utils/address";
 
 const { t, locale } = useI18n();
@@ -50,7 +51,7 @@ const pendingCourierComment = ref("");
 const showSignature = ref(false);
 const showStartConfirm = ref(false);
 const showFinishConfirm = ref(false);
-const showDelaySheet = ref(false);
+const arrivalEditOrder = ref<RouteOrder | null>(null);
 const continueRouteTarget = ref<RouteListItem | null>(null);
 const photoInput = ref<HTMLInputElement | null>(null);
 
@@ -129,9 +130,13 @@ const pendingOrders = computed(
 const closedOrders = computed(
   () => detail.value?.orders.filter((order) => isClosed(order)) ?? [],
 );
+const nextPendingOrder = computed(() => pendingOrders.value[0] ?? null);
 
 const isRouteStarted = computed(() => Boolean(detail.value?.startedAt));
 const isRouteCompleted = computed(() => Boolean(detail.value?.completedAt));
+const canOpenMaps = computed(
+  () => Boolean(detail.value?.mapsUrl) && !isRouteCompleted.value,
+);
 const isSelectedRouteToday = computed(() =>
   isTodayScheduled(detail.value?.scheduledDate),
 );
@@ -456,8 +461,15 @@ const closeRefuse = () => {
   pendingCourierComment.value = "";
 };
 
-const openDelaySheet = () => {
-  if (!deliveryActionsEnabled.value || submitting.value || starting.value || finishing.value) {
+const canEditArrival = (order: RouteOrder) =>
+  deliveryActionsEnabled.value &&
+  nextPendingOrder.value?.id === order.id &&
+  Boolean(order.arrivalTime);
+
+const openArrivalEdit = (order: RouteOrder, event?: Event) => {
+  event?.stopPropagation();
+  event?.preventDefault();
+  if (!canEditArrival(order) || submitting.value || starting.value || finishing.value) {
     return;
   }
   error.value = "";
@@ -465,21 +477,23 @@ const openDelaySheet = () => {
   refuseOrder.value = null;
   showSignature.value = false;
   pendingCourierComment.value = "";
-  showDelaySheet.value = true;
+  arrivalEditOrder.value = order;
 };
 
-const closeDelaySheet = () => {
+const closeArrivalEdit = () => {
   if (submitting.value) {
     return;
   }
-  showDelaySheet.value = false;
+  arrivalEditOrder.value = null;
 };
 
-const submitDelay = async (minutes: number) => {
+const submitArrivalEdit = async (arrivalTime: string) => {
   const routeId = selectedId.value;
+  const order = arrivalEditOrder.value;
   if (
     routeId === null ||
-    !deliveryActionsEnabled.value ||
+    !order ||
+    !canEditArrival(order) ||
     submitting.value ||
     starting.value ||
     finishing.value
@@ -491,15 +505,43 @@ const submitDelay = async (minutes: number) => {
   error.value = "";
 
   try {
-    const data = await reportDelayRequest(routeId, minutes);
+    const data = await adjustArrivalRequest(routeId, order.id, arrivalTime);
     detail.value = data.route;
     syncRouteListItem(data.route);
-    showDelaySheet.value = false;
+    arrivalEditOrder.value = null;
   } catch (e) {
-    error.value = displayApiError(e, t, "delivery.delayFailed");
-    showDelaySheet.value = false;
+    error.value = displayApiError(e, t, "delivery.adjustArrivalFailed");
+    arrivalEditOrder.value = null;
   } finally {
     submitting.value = false;
+  }
+};
+
+const openMaps = async () => {
+  const url = detail.value?.mapsUrl;
+  if (!url || !canOpenMaps.value) {
+    return;
+  }
+  try {
+    await openGoogleMapsUrl(url);
+  } catch {
+    error.value = t("routes.loadDetailFailed");
+  }
+};
+
+const stopMapsUrl = (order: RouteOrder) => buildStopMapsUrl(order);
+
+const openStopMaps = async (order: RouteOrder, event?: Event) => {
+  event?.stopPropagation();
+  event?.preventDefault();
+  const url = stopMapsUrl(order);
+  if (!url) {
+    return;
+  }
+  try {
+    await openGoogleMapsUrl(url);
+  } catch {
+    error.value = t("routes.loadDetailFailed");
   }
 };
 
@@ -622,7 +664,7 @@ watch(
 <template>
   <div class="driver-routes">
     <div class="driver-routes__top">
-      <div>
+      <div class="driver-routes__heading">
         <h1 class="panel__title">
           {{ detail?.name || t("routes.title") }}
         </h1>
@@ -630,6 +672,39 @@ watch(
           {{ state.user.name }}
         </p>
       </div>
+      <button
+        v-if="canOpenMaps"
+        class="driver-routes__maps-btn"
+        type="button"
+        :aria-label="t('routes.openMaps')"
+        :title="t('routes.openMaps')"
+        :disabled="submitting || starting || finishing"
+        @click="openMaps"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+          <path
+            d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M9 7v13l6-3V4L9 7z"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M15 4l4.553 2.276A1 1 0 0 1 21 7.118v10.764a1 1 0 0 1-1.447.894L15 16"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
     </div>
 
     <p v-if="error" class="alert">{{ error }}</p>
@@ -730,27 +805,9 @@ watch(
           >
             {{ starting ? t("routes.starting") : t("routes.start") }}
           </button>
-          <a
-            v-if="detail.mapsUrl && isRouteStarted && !isRouteCompleted"
-            class="btn btn--primary btn--compact"
-            :href="detail.mapsUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ t("routes.openMaps") }}
-          </a>
-          <button
-            v-if="deliveryActionsEnabled"
-            class="btn btn--danger btn--compact"
-            type="button"
-            :disabled="submitting || starting || finishing"
-            @click="openDelaySheet"
-          >
-            {{ t("delivery.reportDelay") }}
-          </button>
           <button
             v-if="canFinishRoute"
-            class="btn btn--primary btn--compact"
+            class="btn btn--danger btn--compact driver-routes__finish"
             type="button"
             :disabled="finishing || starting || submitting"
             @click="openFinishConfirm"
@@ -815,19 +872,40 @@ watch(
               <div class="stop-card__body">
                 <div class="stop-card__heading">
                   <div class="stop-card__name">{{ order.clientName }}</div>
-                  <div class="stop-card__badges">
-                    <span
-                      v-if="order.isExchange"
-                      class="stop-card__badge stop-card__badge--exchange"
+                  <div class="stop-card__aside">
+                    <div class="stop-card__badges">
+                      <span
+                        v-if="order.isExchange"
+                        class="stop-card__badge stop-card__badge--exchange"
+                      >
+                        {{ t("delivery.exchange") }}
+                      </span>
+                      <span
+                        class="stop-card__badge"
+                        :class="{ 'stop-card__badge--refused': isRefused(order) }"
+                      >
+                        {{ closedStatusLabel(order) }}
+                      </span>
+                    </div>
+                    <button
+                      v-if="stopMapsUrl(order)"
+                      class="stop-card__map-btn"
+                      type="button"
+                      :aria-label="t('routes.openStopMaps')"
+                      :title="t('routes.openStopMaps')"
+                      @click="openStopMaps(order, $event)"
                     >
-                      {{ t("delivery.exchange") }}
-                    </span>
-                    <span
-                      class="stop-card__badge"
-                      :class="{ 'stop-card__badge--refused': isRefused(order) }"
-                    >
-                      {{ closedStatusLabel(order) }}
-                    </span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                        <path
+                          d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11z"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
                 <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
@@ -840,6 +918,16 @@ watch(
                 >
                   <span v-if="order.travelDurationText">{{ order.travelDurationText }}</span>
                   <span v-if="order.travelDistanceText">{{ order.travelDistanceText }}</span>
+                </div>
+                <div class="stop-card__footer">
+                  <div class="stop-card__arrival-line">
+                    <div
+                      class="stop-card__arrival"
+                      :title="t('routes.arrivalTime', { time: order.arrivalTime || '—' })"
+                    >
+                      {{ order.arrivalTime || "—" }}
+                    </div>
+                  </div>
                 </div>
               </div>
             </article>
@@ -864,6 +952,10 @@ watch(
             v-for="order in pendingOrders"
             :key="order.id"
             class="stop-card stop-card--link"
+            :class="{
+              'stop-card--current':
+                isRouteStarted && nextPendingOrder?.id === order.id,
+            }"
             role="button"
             tabindex="0"
             @click="openOrder(order)"
@@ -875,12 +967,39 @@ watch(
             <div class="stop-card__body">
               <div class="stop-card__heading">
                 <div class="stop-card__name">{{ order.clientName }}</div>
-                <span
-                  v-if="order.isExchange"
-                  class="stop-card__badge stop-card__badge--exchange"
-                >
-                  {{ t("delivery.exchange") }}
-                </span>
+                <div class="stop-card__aside">
+                  <span
+                    v-if="order.isExchange"
+                    class="stop-card__badge stop-card__badge--exchange"
+                  >
+                    {{ t("delivery.exchange") }}
+                  </span>
+                  <button
+                    v-if="stopMapsUrl(order)"
+                    class="stop-card__map-btn"
+                    type="button"
+                    :aria-label="t('routes.openStopMaps')"
+                    :title="t('routes.openStopMaps')"
+                    @click="openStopMaps(order, $event)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                      <path
+                        d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11z"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                      <circle
+                        cx="12"
+                        cy="10"
+                        r="2.5"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
                 {{ order.phone }}
@@ -892,6 +1011,41 @@ watch(
               >
                 <span v-if="order.travelDurationText">{{ order.travelDurationText }}</span>
                 <span v-if="order.travelDistanceText">{{ order.travelDistanceText }}</span>
+              </div>
+              <div class="stop-card__footer">
+                <div class="stop-card__arrival-line">
+                  <button
+                    v-if="canEditArrival(order)"
+                    class="stop-card__edit-btn"
+                    type="button"
+                    :aria-label="t('routes.editArrival')"
+                    :title="t('routes.editArrival')"
+                    :disabled="submitting || starting || finishing"
+                    @click="openArrivalEdit(order, $event)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                      <path
+                        d="M12 20h9"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                      <path
+                        d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <div
+                    class="stop-card__arrival"
+                    :title="t('routes.arrivalTime', { time: order.arrivalTime || '—' })"
+                  >
+                    {{ order.arrivalTime || "—" }}
+                  </div>
+                </div>
               </div>
             </div>
           </article>
@@ -927,11 +1081,12 @@ watch(
       @cancel="closeRefuse"
     />
 
-    <ReportDelaySheet
-      v-if="showDelaySheet"
+    <AdjustArrivalSheet
+      v-if="arrivalEditOrder?.arrivalTime"
+      :current-arrival="arrivalEditOrder.arrivalTime"
       :submitting="submitting"
-      @confirm="submitDelay"
-      @cancel="closeDelaySheet"
+      @confirm="submitArrivalEdit"
+      @cancel="closeArrivalEdit"
     />
 
     <ConfirmActionSheet

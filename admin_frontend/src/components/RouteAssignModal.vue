@@ -266,6 +266,13 @@ const submitImport = async (replaceExisting = false) => {
         count: data.route.orderCount ?? data.route.orders?.length ?? 0,
       }),
     )
+    const invalidAddresses = Array.isArray(data.invalidAddresses) ? data.invalidAddresses : []
+    if (invalidAddresses.length) {
+      toast.warning(
+        t('deliveryRoutes.importAddressWarnings', { count: invalidAddresses.length }),
+        { timeout: 8000 },
+      )
+    }
     open.value = false
     emit('saved', data.route)
   } catch (e) {

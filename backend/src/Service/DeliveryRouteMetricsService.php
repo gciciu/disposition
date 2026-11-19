@@ -134,8 +134,14 @@ class DeliveryRouteMetricsService
 
         try {
             $built = $this->googleMaps->buildTruckRoute($points);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            // Keep a usable maps link even when Directions fails; durations stay unset.
             $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl($points));
+            error_log(sprintf(
+                'DeliveryRouteMetricsService: Directions failed for route "%s": %s',
+                $route->getName() ?? (string) $route->getId(),
+                $e->getMessage(),
+            ));
 
             return;
         }

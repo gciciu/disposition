@@ -179,40 +179,96 @@ class DriverRouteController extends AbstractController
         }
     }
 
-    #[Route('/{id}/delay', name: 'api_driver_routes_delay', methods: ['POST'], requirements: ['id' => '\d+'])]
-    public function reportDelay(int $id, Request $request, #[CurrentUser] User $user): JsonResponse
-    {
+    #[Route(
+        '/{routeId}/orders/{orderId}/arrival',
+        name: 'api_driver_order_adjust_arrival',
+        methods: ['POST'],
+        requirements: ['routeId' => '\d+', 'orderId' => '\d+'],
+    )]
+    public function adjustArrival(
+        int $routeId,
+        int $orderId,
+        Request $request,
+        #[CurrentUser] User $user,
+    ): JsonResponse {
         try {
             $courier = $this->requireCourier($user);
             if ($courier instanceof JsonResponse) {
                 return $courier;
             }
 
-            $route = $this->routes->findOneAssignedToCourier($id, $courier);
+            $order = $this->findAssignedOrder($routeId, $orderId, $courier);
+            if ($order instanceof JsonResponse) {
+                return $order;
+            }
+
+            $route = $order->getRoute();
             if (!$route instanceof DeliveryRoute) {
                 return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
             }
 
             $this->assertRouteStarted($route);
 
-            $payload = $this->readJsonPayload($request);
-            $minutesRaw = $payload['minutes'] ?? null;
-            if (\is_string($minutesRaw) && is_numeric($minutesRaw)) {
-                $minutesRaw = (int) $minutesRaw;
-            }
-            if (!\is_int($minutesRaw) && !\is_float($minutesRaw)) {
-                return $this->json(['error' => 'minutes is required'], Response::HTTP_BAD_REQUEST);
+            $nextPending = $this->findNextPendingOrder($route);
+            if (!$nextPending instanceof DeliveryOrder || $nextPending->getId() !== $order->getId()) {
+                return $this->json(
+                    ['error' => 'Only the next pending stop arrival can be adjusted'],
+                    Response::HTTP_CONFLICT,
+                );
             }
 
-            $minutes = (int) $minutesRaw;
-            if ($minutes < 1 || $minutes > 180) {
+            $payload = $this->readJsonPayload($request);
+            $arrivalRaw = $payload['arrivalTime'] ?? null;
+            if (!\is_string($arrivalRaw) || 1 !== preg_match('/^\d{1,2}:\d{2}$/', trim($arrivalRaw))) {
                 return $this->json(
-                    ['error' => 'minutes must be between 1 and 180'],
+                    ['error' => 'arrivalTime is required in HH:mm format'],
                     Response::HTTP_BAD_REQUEST,
                 );
             }
 
-            $route->addDelayMinutes($minutes);
+            $targetSeconds = $this->clockTimeToSeconds(trim($arrivalRaw));
+            if (null === $targetSeconds) {
+                return $this->json(['error' => 'arrivalTime is invalid'], Response::HTTP_BAD_REQUEST);
+            }
+
+            $currentArrival = $route->computeArrivalTimes()[$order->getId()] ?? null;
+            if (!\is_string($currentArrival) || '' === $currentArrival) {
+                return $this->json(
+                    ['error' => 'Current arrival time is not available'],
+                    Response::HTTP_CONFLICT,
+                );
+            }
+
+            $currentSeconds = $this->clockTimeToSeconds($currentArrival);
+            if (null === $currentSeconds) {
+                return $this->json(
+                    ['error' => 'Current arrival time is not available'],
+                    Response::HTTP_CONFLICT,
+                );
+            }
+
+            // Allow schedules that cross midnight: if target looks earlier, treat as next day.
+            if ($targetSeconds < $currentSeconds) {
+                $targetSeconds += 86400;
+            }
+
+            $deltaMinutes = intdiv($targetSeconds - $currentSeconds, 60);
+            if ($deltaMinutes < 1) {
+                return $this->json(
+                    ['error' => 'arrivalTime must be later than the current planned arrival'],
+                    Response::HTTP_BAD_REQUEST,
+                );
+            }
+
+            if ($deltaMinutes > 180) {
+                return $this->json(
+                    ['error' => 'arrivalTime increase must be at most 180 minutes'],
+                    Response::HTTP_BAD_REQUEST,
+                );
+            }
+
+            $order->addArrivalDelayMinutes($deltaMinutes);
+            $route->addDelayMinutes($deltaMinutes);
             $this->em->flush();
             $this->realtime->publishRouteDelayed($route);
 
@@ -439,6 +495,32 @@ class DriverRouteController extends AbstractController
         }
 
         return $this->json(['error' => 'Order not found'], Response::HTTP_NOT_FOUND);
+    }
+
+    private function findNextPendingOrder(DeliveryRoute $route): ?DeliveryOrder
+    {
+        foreach ($route->getOrders() as $order) {
+            if (!$order->getStatus()->isFinal()) {
+                return $order;
+            }
+        }
+
+        return null;
+    }
+
+    private function clockTimeToSeconds(string $clock): ?int
+    {
+        if (1 !== preg_match('/^(\d{1,2}):(\d{2})$/', $clock, $matches)) {
+            return null;
+        }
+
+        $hours = (int) $matches[1];
+        $minutes = (int) $matches[2];
+        if ($hours > 23 || $minutes > 59) {
+            return null;
+        }
+
+        return ($hours * 3600) + ($minutes * 60);
     }
 
     private function assertRouteStarted(?DeliveryRoute $route): void

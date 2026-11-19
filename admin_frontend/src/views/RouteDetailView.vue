@@ -27,6 +27,7 @@ import BaseIcon from '@/components/BaseIcon.vue'
 import FormField from '@/components/FormField.vue'
 import FormControl from '@/components/FormControl.vue'
 import OrderCommentsModal from '@/components/OrderCommentsModal.vue'
+import AddressAutocomplete from '@/components/AddressAutocomplete.vue'
 import api, { showApiError } from '@/api.js'
 import { useRealtime } from '@/composables/useRealtime.js'
 import { withoutCountry } from '@/utils/address.js'
@@ -52,6 +53,8 @@ const unloadDrafts = ref({})
 const applyingUnloadId = ref(null)
 const commentsModalOpen = ref(false)
 const commentsOrder = ref(null)
+const addressDrafts = ref({})
+const savingAddressId = ref(null)
 
 const UNLOAD_MIN = 1
 const UNLOAD_MAX = 60
@@ -194,6 +197,7 @@ const onCommentsSaved = (routeData) => {
   syncSelectedWarehouse()
   syncScheduleFields()
   syncUnloadDrafts({ preserveDirty: true })
+  syncAddressDrafts()
   if (commentsOrder.value?.id != null) {
     commentsOrder.value =
       routeData.orders?.find((item) => item.id === commentsOrder.value.id) ?? null
@@ -233,11 +237,94 @@ const applyUnload = async (order) => {
     syncSelectedWarehouse()
     syncScheduleFields()
     syncUnloadDrafts()
+    syncAddressDrafts()
     toast.success(t('deliveryRoutes.unloadApplied'))
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.unloadApplyFailed'))
   } finally {
     applyingUnloadId.value = null
+  }
+}
+
+const addressDraftOf = (order) => {
+  if (!order?.id) {
+    return { address: '', placeId: null }
+  }
+  return (
+    addressDrafts.value[order.id] ?? {
+      address: withoutCountry(order.formattedAddress || order.address) || '',
+      placeId: order.placeId ?? null,
+    }
+  )
+}
+
+const setAddressDraft = (order, patch) => {
+  if (!order?.id) {
+    return
+  }
+  const current = addressDraftOf(order)
+  addressDrafts.value = {
+    ...addressDrafts.value,
+    [order.id]: {
+      address: Object.prototype.hasOwnProperty.call(patch, 'address')
+        ? patch.address
+        : current.address,
+      placeId: Object.prototype.hasOwnProperty.call(patch, 'placeId')
+        ? patch.placeId
+        : current.placeId,
+    },
+  }
+}
+
+const syncAddressDrafts = () => {
+  const next = {}
+  for (const order of detail.value?.orders ?? []) {
+    if (!order?.addressValid) {
+      next[order.id] = {
+        address: withoutCountry(order.formattedAddress || order.address) || '',
+        placeId: order.placeId ?? null,
+      }
+    }
+  }
+  addressDrafts.value = next
+}
+
+const canSaveAddress = (order) => {
+  if (!order?.id || order.addressValid || isOrderFinished(order) || savingAddressId.value != null) {
+    return false
+  }
+  return Boolean(addressDraftOf(order).address?.trim())
+}
+
+const saveOrderAddress = async (order) => {
+  if (!detail.value?.id || !canSaveAddress(order)) {
+    return
+  }
+
+  const draft = addressDraftOf(order)
+  savingAddressId.value = order.id
+  try {
+    const payload = {
+      id: order.id,
+      address: draft.address.trim(),
+    }
+    if (draft.placeId) {
+      payload.placeId = draft.placeId
+    }
+    const { data } = await api.put(`/api/admin/routes/${detail.value.id}`, {
+      orders: [payload],
+    })
+    detail.value = data.route
+    syncSelectedCourier()
+    syncSelectedWarehouse()
+    syncScheduleFields()
+    syncUnloadDrafts({ preserveDirty: true })
+    syncAddressDrafts()
+    toast.success(t('deliveryRoutes.addressSaved'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.addressSaveFailed'))
+  } finally {
+    savingAddressId.value = null
   }
 }
 
@@ -270,6 +357,7 @@ const loadRoute = async () => {
     syncSelectedWarehouse()
     syncScheduleFields()
     syncUnloadDrafts()
+    syncAddressDrafts()
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
   } finally {
@@ -310,6 +398,7 @@ const saveRoute = async () => {
     syncSelectedWarehouse()
     syncScheduleFields()
     syncUnloadDrafts({ preserveDirty: true })
+    syncAddressDrafts()
     toast.success(t('deliveryRoutes.saved'))
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.saveFailed'))
@@ -469,6 +558,7 @@ const applyRealtimePayload = (event, data) => {
     syncSelectedCourier()
     syncSelectedWarehouse()
     syncUnloadDrafts({ preserveDirty: true })
+    syncAddressDrafts()
     return
   }
 
@@ -485,6 +575,7 @@ const applyRealtimePayload = (event, data) => {
     syncSelectedCourier()
     syncSelectedWarehouse()
     syncUnloadDrafts({ preserveDirty: true })
+    syncAddressDrafts()
   }
 }
 
@@ -732,34 +823,62 @@ watch(warehouseOptions, () => {
                       {{ t('deliveryRoutes.statusDelivered') }}
                     </span>
                   </div>
-                  <div class="mt-1 flex items-center gap-1.5 text-sm">
+                  <div
+                    v-if="order.addressValid"
+                    class="mt-1 flex items-center gap-1.5 text-sm"
+                  >
                     <BaseIcon
-                      :path="order.addressValid ? mdiCheckCircle : mdiAlertCircle"
-                      :class="order.addressValid ? 'text-emerald-600' : 'text-red-600'"
+                      :path="mdiCheckCircle"
+                      class="shrink-0 text-emerald-600"
                       size="16"
-                      class="shrink-0"
                     />
                     <span>{{ displayAddress(order) }}</span>
                   </div>
                   <div
-                    v-if="!order.addressValid"
-                    class="mt-1 text-xs text-red-600"
+                    v-else
+                    class="mt-1 space-y-1.5"
                   >
-                    {{ t('deliveryRoutes.addressInvalid') }}
+                    <div class="flex items-start gap-1.5 text-xs text-red-600">
+                      <BaseIcon
+                        :path="mdiAlertCircle"
+                        class="mt-0.5 shrink-0"
+                        size="16"
+                      />
+                      <span>{{ t('deliveryRoutes.addressMissingHelp') }}</span>
+                    </div>
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
+                      <div class="min-w-0 flex-1">
+                        <AddressAutocomplete
+                          :model-value="addressDraftOf(order).address"
+                          :place-id="addressDraftOf(order).placeId"
+                          :placeholder="t('deliveryRoutes.addressPlaceholder')"
+                          :disabled="isOrderFinished(order) || savingAddressId === order.id"
+                          @update:model-value="setAddressDraft(order, { address: $event })"
+                          @update:place-id="setAddressDraft(order, { placeId: $event })"
+                        />
+                      </div>
+                      <BaseButton
+                        color="info"
+                        :label="t('deliveryRoutes.addressSave')"
+                        :icon="savingAddressId === order.id ? mdiLoading : mdiContentSave"
+                        :disabled="!canSaveAddress(order)"
+                        small
+                        @click="saveOrderAddress(order)"
+                      />
+                    </div>
                   </div>
-                  <div class="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                  <div
+                    v-if="order.weightKg != null"
+                    class="mt-1 text-xs text-gray-500 dark:text-slate-400"
+                  >
                     {{
-                      order.weightKg != null
-                        ? t('deliveryRoutes.weightValue', {
-                            value: Number(order.weightKg).toLocaleString(locale, {
-                              minimumFractionDigits: 1,
-                              maximumFractionDigits: 1,
-                            }),
-                          })
-                        : '—'
+                      t('deliveryRoutes.weightValue', {
+                        value: Number(order.weightKg).toLocaleString(locale, {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: 1,
+                        }),
+                      })
                     }}
-                    <span class="mx-1">·</span>
-                    {{ order.travelDistanceText || '—' }}
                   </div>
                   <div
                     v-if="regularProductsOf(order).length"
@@ -793,6 +912,12 @@ watch(warehouseOptions, () => {
                   class="whitespace-nowrap font-semibold"
                 >
                   <div>{{ order.travelDurationText || '—' }}</div>
+                  <div
+                    v-if="order.travelDistanceText"
+                    class="mt-0.5 text-xs font-normal text-gray-500 dark:text-slate-400"
+                  >
+                    {{ order.travelDistanceText }}
+                  </div>
                   <div
                     v-if="isNextPendingOrder(order)"
                     class="mt-0.5 text-xs font-normal text-red-600"

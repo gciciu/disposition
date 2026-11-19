@@ -259,7 +259,6 @@ confirm START_AFTER "Start local services when setup finishes?" "y"
 
 # --- system packages ---
 log "Checking / installing system packages"
-sudo_run apt-get update -y
 
 ensure_apt() {
   local pkg
@@ -274,9 +273,63 @@ ensure_apt() {
   done
 }
 
+apt_candidate() {
+  apt-cache policy "$1" 2>/dev/null | awk '/Candidate:/ { print $2; exit }'
+}
+
+apt_has_pkg() {
+  local c
+  c="$(apt_candidate "$1")"
+  [[ -n "$c" && "$c" != "(none)" ]]
+}
+
+# Install only packages that exist in apt (extensions like sodium may be bundled).
+ensure_apt_available() {
+  local pkg
+  for pkg in "$@"; do
+    if dpkg -s "$pkg" >/dev/null 2>&1; then
+      info "OK $pkg"
+    elif apt_has_pkg "$pkg"; then
+      info "Installing $pkg"
+      sudo_run env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg"
+    else
+      info "Skip $pkg (not in apt)"
+    fi
+  done
+}
+
+ensure_php_extensions() {
+  local mm="$1"
+  ensure_apt_available \
+    "php${mm}-mysql" "php${mm}-xml" "php${mm}-mbstring" \
+    "php${mm}-curl" "php${mm}-zip" "php${mm}-intl" \
+    "php${mm}-sqlite3" "php${mm}-gd" "php${mm}-sodium"
+}
+
+# Drop broken ondrej/php lists when apt update fails (e.g. Ubuntu 26.04 resolute —
+# Launchpad has no Release file; use distro PHP or https://packages.sury.org/php/).
+purge_broken_ondrej_php_ppa() {
+  local files=()
+  local f
+  shopt -s nullglob
+  files=(/etc/apt/sources.list.d/ondrej-ubuntu-php-*.sources /etc/apt/sources.list.d/ondrej-ubuntu-php-*.list)
+  shopt -u nullglob
+  ((${#files[@]})) || return 0
+  if sudo_run apt-get update -y >/dev/null 2>&1; then
+    return 0
+  fi
+  info "Removing unusable ondrej/php apt source(s)"
+  for f in "${files[@]}"; do
+    sudo_run rm -f "$f"
+  done
+}
+
+purge_broken_ondrej_php_ppa
+sudo_run apt-get update -y
+
 ensure_apt ca-certificates curl git unzip zip openssl software-properties-common
 
-# PHP 8.4 via ondrej if needed
+# PHP >= 8.2: prefer distro packages (Ubuntu 26.04+ ships 8.5), else ondrej/php.
 php_ok=0
 if need_cmd php; then
   php_ver="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
@@ -287,27 +340,36 @@ if need_cmd php; then
 fi
 
 if [[ "$php_ok" -eq 0 ]]; then
-  info "Installing PHP 8.4 (ondrej/php)"
-  if ! apt-cache policy php8.4-cli 2>/dev/null | grep -q Candidate; then
-    sudo_run add-apt-repository -y ppa:ondrej/php
-    sudo_run apt-get update -y
-  fi
-  ensure_apt \
-    php8.4-cli php8.4-mysql php8.4-xml php8.4-mbstring php8.4-curl \
-    php8.4-zip php8.4-intl php8.4-sqlite3 php8.4-sodium
-  if [[ -x /usr/bin/php8.4 ]]; then
-    sudo_run update-alternatives --set php /usr/bin/php8.4 2>/dev/null || true
+  if apt_has_pkg php-cli; then
+    info "Installing PHP from Ubuntu packages"
+    ensure_apt_available \
+      php-cli php-mysql php-xml php-mbstring php-curl php-zip php-intl \
+      php-sqlite3 php-gd php-sodium
+    php_mm="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+    ensure_php_extensions "$php_mm"
+  else
+    info "Installing PHP 8.4 (ondrej/php)"
+    if ! apt_has_pkg php8.4-cli; then
+      sudo_run add-apt-repository -y ppa:ondrej/php
+      if ! sudo_run apt-get update -y; then
+        purge_broken_ondrej_php_ppa
+        sudo_run apt-get update -y
+        die "ondrej/php is unavailable on this Ubuntu release; install PHP >= 8.2 from distro packages or https://packages.sury.org/php/"
+      fi
+    fi
+    ensure_apt \
+      php8.4-cli php8.4-mysql php8.4-xml php8.4-mbstring php8.4-curl \
+      php8.4-zip php8.4-intl php8.4-sqlite3 php8.4-gd php8.4-sodium
+    if [[ -x /usr/bin/php8.4 ]]; then
+      sudo_run update-alternatives --set php /usr/bin/php8.4 2>/dev/null || true
+    fi
   fi
 else
-  ensure_apt \
+  ensure_apt_available \
     php-cli php-mysql php-xml php-mbstring php-curl php-zip php-intl \
-    php-sqlite3 php-sodium || true
-  # Named packages if meta packages missed extensions
+    php-sqlite3 php-gd php-sodium
   php_mm="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
-  ensure_apt \
-    "php${php_mm}-mysql" "php${php_mm}-xml" "php${php_mm}-mbstring" \
-    "php${php_mm}-curl" "php${php_mm}-zip" "php${php_mm}-intl" \
-    "php${php_mm}-sodium" || true
+  ensure_php_extensions "$php_mm"
 fi
 
 # Composer
@@ -453,7 +515,7 @@ MERCURE_PUBLISHER_JWT_KEY=${MERCURE_SECRET}
 MERCURE_SUBSCRIBER_JWT_KEY=${MERCURE_SECRET}
 MERCURE_PUBLISHER_JWT_ALG=HS256
 MERCURE_SUBSCRIBER_JWT_ALG=HS256
-MERCURE_EXTRA_DIRECTIVES=cors_origins *
+MERCURE_EXTRA_DIRECTIVES='cors_origins *'
 EOF
 info "Wrote mercure/.env"
 
@@ -585,6 +647,18 @@ ensure_jwt_keys "$TARGET_DIR/backend" "$TARGET_DIR/scripts/generate-jwt-keys.php
 (
   cd "$TARGET_DIR/backend"
   php bin/console doctrine:migrations:migrate --no-interaction
+
+  # Safety net for local-dev: catch entity columns missing from migrations
+  # (avoids API 500s like Unknown column 'delay_minutes').
+  pending="$(php bin/console doctrine:schema:update --dump-sql 2>/dev/null | sed '/^[[:space:]]*$/d' || true)"
+  if [[ -n "$pending" ]]; then
+    info "Applying pending schema sync (mapping ahead of migrations):"
+    printf '%s\n' "$pending" | while IFS= read -r line; do info "$line"; done
+    php bin/console doctrine:schema:update --force --no-interaction
+  else
+    info "Database schema OK (in sync with entities)"
+  fi
+
   php bin/console cache:clear
 )
 

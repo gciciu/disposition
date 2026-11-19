@@ -101,7 +101,7 @@ Path("/var/www/delivery.rawen.keenetic.pro/mercure/.env").write_text(
     f"MERCURE_SUBSCRIBER_JWT_KEY={secret}\n"
     "MERCURE_PUBLISHER_JWT_ALG=HS256\n"
     "MERCURE_SUBSCRIBER_JWT_ALG=HS256\n"
-    "MERCURE_EXTRA_DIRECTIVES=cors_origins *\n"
+    'MERCURE_EXTRA_DIRECTIVES="cors_origins *"\n'
 )
 print("mercure/.env written")
 PY

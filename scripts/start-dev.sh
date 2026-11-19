@@ -274,6 +274,17 @@ run_migrations() {
   (
     cd "$ROOT/backend"
     php bin/console doctrine:migrations:migrate --no-interaction
+
+    # Local-dev safety net: entity fields sometimes land without a migration
+    # (e.g. delay_minutes → 500 on route list). Sync mapping → DB after migrate.
+    pending="$(php bin/console doctrine:schema:update --dump-sql 2>/dev/null | sed '/^[[:space:]]*$/d' || true)"
+    if [[ -n "$pending" ]]; then
+      echo "WARNING: DB schema drifts from entities; applying local sync:"
+      printf '%s\n' "$pending"
+      php bin/console doctrine:schema:update --force --no-interaction
+    else
+      echo "Database schema OK (in sync with entities)."
+    fi
   )
 }
 
@@ -378,9 +389,14 @@ heal_local_env() {
   fi
 
   if [[ -f "$mercure_env" ]]; then
-    if ! grep -q 'cors_origins \*' "$mercure_env"; then
-      sed -i 's|^MERCURE_EXTRA_DIRECTIVES=.*|MERCURE_EXTRA_DIRECTIVES=cors_origins *|' "$mercure_env"
-      echo "Updated Mercure cors_origins → * (dev)"
+    # Must be shell-quoted: unquoted "*" expands on `source` (e.g. to ./delivery) and aborts mercure.
+    if ! grep -Eq "^MERCURE_EXTRA_DIRECTIVES=['\"]cors_origins \\*['\"]" "$mercure_env"; then
+      if grep -q '^MERCURE_EXTRA_DIRECTIVES=' "$mercure_env"; then
+        sed -i "s|^MERCURE_EXTRA_DIRECTIVES=.*|MERCURE_EXTRA_DIRECTIVES='cors_origins *'|" "$mercure_env"
+      else
+        printf "\nMERCURE_EXTRA_DIRECTIVES='cors_origins *'\n" >>"$mercure_env"
+      fi
+      echo "Updated Mercure cors_origins → * (quoted for source)"
     fi
   fi
 }
