@@ -26,6 +26,7 @@ import BaseButton from '@/components/BaseButton.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import FormField from '@/components/FormField.vue'
 import FormControl from '@/components/FormControl.vue'
+import WeekdayDatePicker from '@/components/WeekdayDatePicker.vue'
 import OrderCommentsModal from '@/components/OrderCommentsModal.vue'
 import AddressAutocomplete from '@/components/AddressAutocomplete.vue'
 import api, { showApiError } from '@/api.js'
@@ -49,6 +50,7 @@ const selectedCourier = ref(null)
 const selectedWarehouse = ref(null)
 const scheduledDate = ref('')
 const scheduledStartTime = ref('')
+const occupiedDays = ref([])
 const unloadDrafts = ref({})
 const applyingUnloadId = ref(null)
 const commentsModalOpen = ref(false)
@@ -347,6 +349,38 @@ const loadWarehouses = async () => {
   }
 }
 
+const scheduleRange = () => {
+  const now = new Date()
+  const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const to = new Date(now.getFullYear(), now.getMonth() + 4, 0)
+  const fmt = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  return { from: fmt(from), to: fmt(to) }
+}
+
+const loadSchedule = async () => {
+  const courierId = selectedCourier.value?.id
+  if (!courierId) {
+    occupiedDays.value = []
+    return
+  }
+  const { from, to } = scheduleRange()
+  try {
+    const params = { from, to }
+    if (detail.value?.id) {
+      params.excludeRouteId = detail.value.id
+    }
+    const { data } = await api.get(`/api/admin/couriers/${courierId}/schedule`, { params })
+    occupiedDays.value = data.days ?? []
+  } catch {
+    occupiedDays.value = []
+  }
+}
+
 const loadRoute = async () => {
   loading.value = true
   detail.value = null
@@ -358,6 +392,7 @@ const loadRoute = async () => {
     syncScheduleFields()
     syncUnloadDrafts()
     syncAddressDrafts()
+    await loadSchedule()
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
   } finally {
@@ -497,6 +532,9 @@ const isProductDelivered = (order, index) => {
 
 /** Delivered stop where at least one product was not handed over. */
 const isPartialDelivery = (order) => {
+  if (order.deliveryMethod === 'partial') {
+    return true
+  }
   if (order.status !== 'delivered') {
     return false
   }
@@ -505,6 +543,40 @@ const isPartialDelivery = (order) => {
     return false
   }
   return products.some((_, index) => !isProductDelivered(order, index))
+}
+
+const deliveryMethodLabel = (order) => {
+  switch (order.deliveryMethod) {
+    case 'personal':
+      return t('deliveryRoutes.methodPersonal')
+    case 'left_on_site':
+      return t('deliveryRoutes.methodLeftOnSite')
+    case 'neighbor':
+      return t('deliveryRoutes.methodNeighbor')
+    case 'partial':
+      return t('deliveryRoutes.methodPartial')
+    case 'not_delivered':
+      return t('deliveryRoutes.methodNotDelivered')
+    default:
+      return null
+  }
+}
+
+const orderStatusBadgeLabel = (order) => {
+  const methodLabel = deliveryMethodLabel(order)
+  if (methodLabel) {
+    return methodLabel
+  }
+  if (order.status === 'refused') {
+    return t('deliveryRoutes.statusRefused')
+  }
+  if (isPartialDelivery(order)) {
+    return t('deliveryRoutes.statusPartial')
+  }
+  if (order.status === 'delivered') {
+    return t('deliveryRoutes.statusDelivered')
+  }
+  return null
 }
 
 const openOrderDetail = (order) => {
@@ -610,6 +682,15 @@ watch(warehouseOptions, () => {
     syncSelectedWarehouse()
   }
 })
+
+watch(
+  () => selectedCourier.value?.id,
+  () => {
+    if (canEditAssignment.value) {
+      void loadSchedule()
+    }
+  },
+)
 </script>
 
 <template>
@@ -706,13 +787,13 @@ watch(warehouseOptions, () => {
                 <FormControl v-model="selectedWarehouse" :options="warehouseOptions" />
               </FormField>
               <FormField :label="t('deliveryRoutes.scheduledDate')">
-                <FormControl v-model="scheduledDate" type="date" />
-                <div
-                  v-if="scheduledDate"
-                  class="mt-1 text-sm text-gray-600 dark:text-slate-300"
-                >
-                  {{ formatScheduledDateWithWeekday(scheduledDate) }}
-                </div>
+                <WeekdayDatePicker
+                  v-model="scheduledDate"
+                  :occupied-days="occupiedDays"
+                  :allow-date="detail?.scheduledDate"
+                  block-occupied
+                  :disabled="saving"
+                />
               </FormField>
               <FormField
                 :label="t('deliveryRoutes.scheduledStartTime')"
@@ -805,22 +886,18 @@ watch(warehouseOptions, () => {
                       {{ t('deliveryRoutes.statusExchange') }}
                     </span>
                     <span
-                      v-if="order.status === 'refused'"
-                      class="ml-2 text-xs font-bold uppercase text-red-600"
+                      v-if="orderStatusBadgeLabel(order)"
+                      class="ml-2 text-xs font-bold uppercase"
+                      :class="{
+                        'text-red-600':
+                          order.status === 'refused' ||
+                          order.deliveryMethod === 'not_delivered',
+                        'text-yellow-600': isPartialDelivery(order),
+                        'text-emerald-600':
+                          order.status === 'delivered' && !isPartialDelivery(order),
+                      }"
                     >
-                      {{ t('deliveryRoutes.statusRefused') }}
-                    </span>
-                    <span
-                      v-else-if="isPartialDelivery(order)"
-                      class="ml-2 text-xs font-bold uppercase text-yellow-600"
-                    >
-                      {{ t('deliveryRoutes.statusPartial') }}
-                    </span>
-                    <span
-                      v-else-if="order.status === 'delivered'"
-                      class="ml-2 text-xs font-bold uppercase text-emerald-600"
-                    >
-                      {{ t('deliveryRoutes.statusDelivered') }}
+                      {{ orderStatusBadgeLabel(order) }}
                     </span>
                   </div>
                   <div

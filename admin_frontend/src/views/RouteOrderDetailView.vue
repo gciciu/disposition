@@ -62,9 +62,30 @@ const title = computed(() => {
   })
 })
 
+const deliveryMethodLabel = (item) => {
+  switch (item?.deliveryMethod) {
+    case 'personal':
+      return t('deliveryRoutes.methodPersonal')
+    case 'left_on_site':
+      return t('deliveryRoutes.methodLeftOnSite')
+    case 'neighbor':
+      return t('deliveryRoutes.methodNeighbor')
+    case 'partial':
+      return t('deliveryRoutes.methodPartial')
+    case 'not_delivered':
+      return t('deliveryRoutes.methodNotDelivered')
+    default:
+      return null
+  }
+}
+
 const statusLabel = computed(() => {
   if (!order.value) {
     return '—'
+  }
+  const methodLabel = deliveryMethodLabel(order.value)
+  if (methodLabel) {
+    return methodLabel
   }
   if (order.value.status === 'refused') {
     return t('deliveryRoutes.statusRefused')
@@ -76,6 +97,22 @@ const statusLabel = computed(() => {
     return t('deliveryRoutes.statusDelivered')
   }
   return t('deliveryRoutes.statusPending')
+})
+
+const confirmationEmailLabel = computed(() => {
+  const item = order.value
+  if (!item || item.deliveryMethod !== 'left_on_site') {
+    return null
+  }
+  if (item.confirmationEmailSentAt) {
+    const parts = formatDeliveryParts(item.confirmationEmailSentAt)
+    const time = parts ? `${parts.date} ${parts.time}` : item.confirmationEmailSentAt
+    return t('deliveryRoutes.confirmationEmailSent', { time })
+  }
+  if (!item.email) {
+    return t('deliveryRoutes.confirmationEmailNoAddress')
+  }
+  return t('deliveryRoutes.confirmationEmailNotSent')
 })
 
 const routeDelayMinutes = computed(() => Number(routeDetail.value?.delayMinutes) || 0)
@@ -133,6 +170,9 @@ const isProductDelivered = (item, index) => {
 
 /** Delivered stop where at least one product was not handed over. */
 const isPartialDelivery = (item) => {
+  if (item.deliveryMethod === 'partial') {
+    return true
+  }
   if (item.status !== 'delivered') {
     return false
   }
@@ -611,6 +651,18 @@ watch(
                   {{ t('deliveryRoutes.courierCommentEmpty') }}
                 </span>
               </div>
+            </div>
+            <div v-if="order.neighborName">
+              <div class="text-xs text-gray-500 uppercase">
+                {{ t('deliveryRoutes.neighborName') }}
+              </div>
+              <div class="mt-1">{{ order.neighborName }}</div>
+            </div>
+            <div v-if="confirmationEmailLabel">
+              <div class="text-xs text-gray-500 uppercase">
+                {{ t('deliveryRoutes.confirmationEmail') }}
+              </div>
+              <div class="mt-1">{{ confirmationEmailLabel }}</div>
             </div>
           </div>
         </CardBox>

@@ -16,6 +16,13 @@ final class Version20261114220000 extends AbstractMigration
 
     public function up(Schema $schema): void
     {
+        // Idempotent: local start-dev may have added the column via schema:update
+        // before this migration existed.
+        $columns = $this->connection->createSchemaManager()->listTableColumns('delivery_route');
+        if (isset($columns['delay_minutes'])) {
+            return;
+        }
+
         $this->addSql('ALTER TABLE delivery_route ADD delay_minutes INT DEFAULT 0 NOT NULL');
     }
 

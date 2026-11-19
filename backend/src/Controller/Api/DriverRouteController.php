@@ -6,12 +6,15 @@ use App\Entity\Courier;
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
 use App\Entity\User;
+use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryProofType;
 use App\Enum\RouteOriginType;
 use App\Repository\DeliveryRouteRepository;
+use App\Service\DeliveryConfirmationPdfService;
 use App\Service\DeliveryProofService;
 use App\Service\DeliveryRouteMetricsService;
 use App\Service\DriverRealtimePublisher;
+use App\Service\EmailService;
 use App\Service\GoogleMapsService;
 use App\Service\RouteFinishService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -34,6 +37,8 @@ class DriverRouteController extends AbstractController
     public function __construct(
         private readonly DeliveryRouteRepository $routes,
         private readonly DeliveryProofService $proofService,
+        private readonly DeliveryConfirmationPdfService $confirmationPdf,
+        private readonly EmailService $emailService,
         private readonly DeliveryRouteMetricsService $metrics,
         private readonly GoogleMapsService $googleMaps,
         private readonly DriverRealtimePublisher $realtime,
@@ -303,6 +308,20 @@ class DriverRouteController extends AbstractController
 
             $this->assertRouteStarted($order->getRoute());
 
+            $methodRaw = $request->request->get('deliveryMethod');
+            if (!\is_string($methodRaw) || '' === $methodRaw) {
+                return $this->json([
+                    'error' => 'deliveryMethod is required (personal, left_on_site, neighbor, or partial)',
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            $deliveryMethod = DeliveryMethod::tryFrom($methodRaw);
+            if (!$deliveryMethod instanceof DeliveryMethod || !$deliveryMethod->isDeliveredOutcome()) {
+                return $this->json([
+                    'error' => 'deliveryMethod must be personal, left_on_site, neighbor, or partial',
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
             $proofTypeRaw = $request->request->get('proofType');
             if (!\is_string($proofTypeRaw) || '' === $proofTypeRaw) {
                 return $this->json(['error' => 'proofType is required (photo or signature)'], Response::HTTP_BAD_REQUEST);
@@ -330,14 +349,19 @@ class DriverRouteController extends AbstractController
             }
 
             $courierComment = $this->parseCourierComment($request->request->get('courierComment'));
+            $neighborName = $this->parseNeighborName($request->request->get('neighborName'));
 
             $updated = $this->proofService->completeWithProof(
                 $order,
+                $deliveryMethod,
                 $proofType,
                 $file,
                 $deliveredIndexes,
                 $courierComment,
+                $neighborName,
             );
+
+            $this->maybeSendLeftOnSiteConfirmation($updated);
             $this->finishRouteIfAllStopsDone($updated->getRoute());
 
             return $this->json($this->orderMutationResponse($updated));
@@ -431,6 +455,47 @@ class DriverRouteController extends AbstractController
         $trimmed = trim($raw);
 
         return '' === $trimmed ? null : $trimmed;
+    }
+
+    private function parseNeighborName(mixed $raw): ?string
+    {
+        if (null === $raw || !\is_string($raw)) {
+            return null;
+        }
+
+        $trimmed = trim($raw);
+
+        return '' === $trimmed ? null : $trimmed;
+    }
+
+    /**
+     * Doc1 B: send Lieferbestätigung when left_on_site and order has an email.
+     * Failures are swallowed so the driver completion is not blocked.
+     */
+    private function maybeSendLeftOnSiteConfirmation(DeliveryOrder $order): void
+    {
+        if (DeliveryMethod::LeftOnSite !== $order->getDeliveryMethod()) {
+            return;
+        }
+
+        $to = trim((string) $order->getEmail());
+        if ('' === $to || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        try {
+            $pdf = $this->confirmationPdf->generatePdf($order);
+            $filename = $this->confirmationPdf->suggestedFilename($order);
+            $this->emailService->sendDeliveryConfirmation(
+                $to,
+                $pdf,
+                $filename,
+                $order->getClientName(),
+            );
+            $this->proofService->markConfirmationEmailSent($order);
+        } catch (\Throwable) {
+            // Best-effort: keep delivery completed even if mail fails.
+        }
     }
 
     /**

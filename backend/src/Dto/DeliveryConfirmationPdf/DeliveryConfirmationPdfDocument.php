@@ -19,6 +19,9 @@ final class DeliveryConfirmationPdfDocument
 {
     public const METHOD_LEFT_ON_SITE = 'Abgestellt vor Ort';
     public const METHOD_PERSONAL = 'Persönlich angenommen';
+    public const METHOD_NEIGHBOR = 'Beim Nachbarn abgegeben';
+    public const METHOD_PARTIAL = 'Teillieferung';
+    public const METHOD_NOT_DELIVERED = 'Nicht zugestellt';
 
     /**
      * @param list<string> $products Delivered article lines

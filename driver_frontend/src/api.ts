@@ -367,12 +367,19 @@ export type RouteListItem = {
 
 export type OrderStatus = "pending" | "delivered" | "refused";
 export type ProofType = "photo" | "signature";
+export type DeliveryMethod =
+  | "personal"
+  | "left_on_site"
+  | "neighbor"
+  | "partial"
+  | "not_delivered";
 
 export type RouteOrder = {
   id: number;
   position: number;
   clientName: string;
   phone: string | null;
+  email?: string | null;
   address: string;
   formattedAddress: string | null;
   addressValid: boolean;
@@ -390,6 +397,9 @@ export type RouteOrder = {
   isExchange?: boolean;
   completedAt: string | null;
   proofType: ProofType | null;
+  deliveryMethod?: DeliveryMethod | null;
+  neighborName?: string | null;
+  confirmationEmailSentAt?: string | null;
   hasProof: boolean;
   courierComment?: string | null;
 };
@@ -428,13 +438,16 @@ export function continueRouteRequest(id: number) {
 export function completeOrderRequest(
   routeId: number,
   orderId: number,
+  deliveryMethod: Exclude<DeliveryMethod, "not_delivered">,
   proofType: ProofType,
   file: Blob,
   filename = "proof.jpg",
   deliveredProductIndexes?: number[],
   courierComment?: string | null,
+  neighborName?: string | null,
 ) {
   const body = new FormData();
+  body.append("deliveryMethod", deliveryMethod);
   body.append("proofType", proofType);
   body.append("file", file, filename);
   if (deliveredProductIndexes !== undefined) {
@@ -442,6 +455,9 @@ export function completeOrderRequest(
   }
   if (courierComment != null && courierComment.trim() !== "") {
     body.append("courierComment", courierComment.trim());
+  }
+  if (neighborName != null && neighborName.trim() !== "") {
+    body.append("neighborName", neighborName.trim());
   }
 
   return request<{ order: RouteOrder; route: RouteDetail }>(

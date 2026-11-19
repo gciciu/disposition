@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryOrderStatus;
 use App\Enum\DeliveryProofType;
 use App\Repository\DeliveryOrderRepository;
@@ -133,6 +134,18 @@ class DeliveryOrder
 
     #[ORM\Column(length: 32, nullable: true, enumType: DeliveryProofType::class)]
     private ?DeliveryProofType $proofType = null;
+
+    /** Doc1 §4 delivery outcome (A–E). */
+    #[ORM\Column(length: 32, nullable: true, enumType: DeliveryMethod::class)]
+    private ?DeliveryMethod $deliveryMethod = null;
+
+    /** Neighbor name when deliveryMethod is neighbor (Doc1 C). */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $neighborName = null;
+
+    /** Set when Lieferbestätigung email was sent (typically Abgestellt / left_on_site). */
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $confirmationEmailSentAt = null;
 
     #[ORM\Column(length: 512, nullable: true)]
     private ?string $proofPath = null;
@@ -628,6 +641,59 @@ class DeliveryOrder
         return $this;
     }
 
+    public function getDeliveryMethod(): ?DeliveryMethod
+    {
+        return $this->deliveryMethod;
+    }
+
+    public function setDeliveryMethod(?DeliveryMethod $deliveryMethod): static
+    {
+        $this->deliveryMethod = $deliveryMethod;
+
+        return $this;
+    }
+
+    public function getNeighborName(): ?string
+    {
+        return $this->neighborName;
+    }
+
+    public function setNeighborName(?string $neighborName): static
+    {
+        if (null === $neighborName) {
+            $this->neighborName = null;
+
+            return $this;
+        }
+
+        $trimmed = trim($neighborName);
+        if ('' === $trimmed) {
+            $this->neighborName = null;
+
+            return $this;
+        }
+
+        if (mb_strlen($trimmed) > 255) {
+            $trimmed = mb_substr($trimmed, 0, 255);
+        }
+
+        $this->neighborName = $trimmed;
+
+        return $this;
+    }
+
+    public function getConfirmationEmailSentAt(): ?\DateTimeImmutable
+    {
+        return $this->confirmationEmailSentAt;
+    }
+
+    public function setConfirmationEmailSentAt(?\DateTimeImmutable $confirmationEmailSentAt): static
+    {
+        $this->confirmationEmailSentAt = $confirmationEmailSentAt;
+
+        return $this;
+    }
+
     public function getProofPath(): ?string
     {
         return $this->proofPath;
@@ -730,6 +796,9 @@ class DeliveryOrder
      *     isExchange: bool,
      *     completedAt: string|null,
      *     proofType: string|null,
+     *     deliveryMethod: string|null,
+     *     neighborName: string|null,
+     *     confirmationEmailSentAt: string|null,
      *     hasProof: bool,
      *     courierComment: string|null,
      *     createdAt: string
@@ -769,6 +838,9 @@ class DeliveryOrder
             'isExchange' => $this->isExchange(),
             'completedAt' => $this->completedAt?->format(\DateTimeInterface::ATOM),
             'proofType' => $this->proofType?->value,
+            'deliveryMethod' => $this->deliveryMethod?->value,
+            'neighborName' => $this->neighborName,
+            'confirmationEmailSentAt' => $this->confirmationEmailSentAt?->format(\DateTimeInterface::ATOM),
             'hasProof' => $this->hasProof(),
             'courierComment' => $this->courierComment,
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),

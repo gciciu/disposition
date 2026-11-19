@@ -110,15 +110,34 @@ class EmailService
      */
     public function sendConfirmationSample(string $to, string $pdfBinary, string $filename, string $customerName): array
     {
-        $subject = 'Lieferbestätigung — '.$customerName.' (Test)';
+        return $this->sendDeliveryConfirmation($to, $pdfBinary, $filename, $customerName, true);
+    }
+
+    /**
+     * Sends Lieferbestätigung PDF to the customer (Doc1 B — Abgestellt vor Ort).
+     *
+     * @return array{to: string, subject: string, discarded: bool, filename: string}
+     */
+    public function sendDeliveryConfirmation(
+        string $to,
+        string $pdfBinary,
+        string $filename,
+        string $customerName,
+        bool $isTest = false,
+    ): array {
+        $suffix = $isTest ? ' (Test)' : '';
+        $subject = 'Lieferbestätigung — '.$customerName.$suffix;
+        $testNote = $isTest ? ' (Testdaten)' : '';
         $text = "Guten Tag,\n\n"
-            ."anbei erhalten Sie die Lieferbestätigung für Ihre Lieferung (Testdaten).\n\n"
+            ."anbei erhalten Sie die Lieferbestätigung für Ihre Lieferung".$testNote.".\n\n"
+            ."Ihre Ware wurde abgestellt / vor Ort hinterlassen.\n\n"
             ."Mit freundlichen Grüßen\n"
             ."MySpiegel-Lieferservice\n";
 
         $html = '<p>Guten Tag,</p>'
-            .'<p>anbei erhalten Sie die <strong>Lieferbestätigung</strong> für Ihre Lieferung '
-            .'(Testdaten).</p>'
+            .'<p>anbei erhalten Sie die <strong>Lieferbestätigung</strong> für Ihre Lieferung'
+            .($isTest ? ' (Testdaten)' : '').'.</p>'
+            .'<p>Ihre Ware wurde abgestellt / vor Ort hinterlassen.</p>'
             .'<p>Mit freundlichen Grüßen<br>MySpiegel-Lieferservice</p>';
 
         $result = $this->send($to, $subject, $text, $html, [

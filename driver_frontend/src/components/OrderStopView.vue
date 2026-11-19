@@ -29,6 +29,20 @@ const isRefused = computed(() => props.order.status === "refused");
 const isClosed = computed(() => isDelivered.value || isRefused.value);
 
 const statusLabel = computed(() => {
+  switch (props.order.deliveryMethod) {
+    case "personal":
+      return t("delivery.methodPersonal");
+    case "left_on_site":
+      return t("delivery.methodLeftOnSite");
+    case "neighbor":
+      return t("delivery.methodNeighbor");
+    case "partial":
+      return t("delivery.methodPartial");
+    case "not_delivered":
+      return t("delivery.methodNotDelivered");
+    default:
+      break;
+  }
   if (isDelivered.value) {
     return t("delivery.delivered");
   }
@@ -190,18 +204,6 @@ const openStopMaps = async (event: Event) => {
         <div class="stop-card__heading">
           <div class="stop-card__name">{{ order.clientName }}</div>
           <div class="stop-card__aside">
-            <div class="stop-card__badges">
-              <span v-if="order.isExchange" class="stop-card__badge stop-card__badge--exchange">
-                {{ t("delivery.exchange") }}
-              </span>
-              <span
-                v-if="isClosed"
-                class="stop-card__badge"
-                :class="{ 'stop-card__badge--refused': isRefused }"
-              >
-                {{ statusLabel }}
-              </span>
-            </div>
             <button
               v-if="stopMapsUrl"
               class="stop-card__map-btn"
@@ -221,6 +223,18 @@ const openStopMaps = async (event: Event) => {
                 <circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8" />
               </svg>
             </button>
+            <div class="stop-card__badges">
+              <span v-if="order.isExchange" class="stop-card__badge stop-card__badge--exchange">
+                {{ t("delivery.exchange") }}
+              </span>
+              <span
+                v-if="isClosed"
+                class="stop-card__badge"
+                :class="{ 'stop-card__badge--refused': isRefused }"
+              >
+                {{ statusLabel }}
+              </span>
+            </div>
           </div>
         </div>
         <a

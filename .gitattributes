@@ -1,0 +1,5 @@
+# Shell scripts must use LF so shebangs work on Linux/macOS
+*.sh text eol=lf
+
+# Keep bash/env helpers Unix-safe when present
+*.bash text eol=lf

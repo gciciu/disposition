@@ -10,6 +10,7 @@ import {
   finishRouteRequest,
   refuseOrderRequest,
   startRouteRequest,
+  type DeliveryMethod,
   type ProofType,
   type RouteDetail,
   type RouteListItem,
@@ -18,7 +19,9 @@ import {
 import { useAuth } from "../auth";
 import AdjustArrivalSheet from "../components/AdjustArrivalSheet.vue";
 import ConfirmActionSheet from "../components/ConfirmActionSheet.vue";
-import ConfirmDeliverySheet from "../components/ConfirmDeliverySheet.vue";
+import ConfirmDeliverySheet, {
+  type DeliveryMethodChoice,
+} from "../components/ConfirmDeliverySheet.vue";
 import OrderStopView from "../components/OrderStopView.vue";
 import RefuseDeliverySheet from "../components/RefuseDeliverySheet.vue";
 import SignaturePadModal from "../components/SignaturePadModal.vue";
@@ -48,12 +51,29 @@ const confirmOrder = ref<RouteOrder | null>(null);
 const refuseOrder = ref<RouteOrder | null>(null);
 const pendingDeliveredIndexes = ref<number[]>([]);
 const pendingCourierComment = ref("");
+const pendingDeliveryMethod = ref<Exclude<DeliveryMethod, "not_delivered"> | null>(
+  null,
+);
+const pendingNeighborName = ref("");
 const showSignature = ref(false);
 const showStartConfirm = ref(false);
 const showFinishConfirm = ref(false);
 const arrivalEditOrder = ref<RouteOrder | null>(null);
 const continueRouteTarget = ref<RouteListItem | null>(null);
 const photoInput = ref<HTMLInputElement | null>(null);
+
+const canPartialDelivery = computed(() => {
+  const order = confirmOrder.value;
+  if (!order) {
+    return false;
+  }
+  const total = order.products.length;
+  if (total <= 0) {
+    return false;
+  }
+  const selected = pendingDeliveredIndexes.value.length;
+  return selected > 0 && selected < total;
+});
 
 const hasRoutes = computed(() => routes.value.length > 0);
 
@@ -114,7 +134,28 @@ const isDelivered = (order: RouteOrder) => order.status === "delivered";
 const isRefused = (order: RouteOrder) => order.status === "refused";
 const isClosed = (order: RouteOrder) => isDelivered(order) || isRefused(order);
 
+const deliveryMethodLabel = (order: RouteOrder) => {
+  switch (order.deliveryMethod) {
+    case "personal":
+      return t("delivery.methodPersonal");
+    case "left_on_site":
+      return t("delivery.methodLeftOnSite");
+    case "neighbor":
+      return t("delivery.methodNeighbor");
+    case "partial":
+      return t("delivery.methodPartial");
+    case "not_delivered":
+      return t("delivery.methodNotDelivered");
+    default:
+      return null;
+  }
+};
+
 const closedStatusLabel = (order: RouteOrder) => {
+  const methodLabel = deliveryMethodLabel(order);
+  if (methodLabel) {
+    return methodLabel;
+  }
   if (isDelivered(order)) {
     return t("delivery.delivered");
   }
@@ -250,7 +291,7 @@ const backToStops = () => {
   selectedOrderId.value = null;
   closeConfirm();
   closeRefuse();
-  closeDelaySheet();
+  closeArrivalEdit();
 };
 
 const openStartConfirm = () => {
@@ -414,6 +455,9 @@ const openConfirm = (
   refuseOrder.value = null;
   pendingDeliveredIndexes.value = deliveredProductIndexes;
   pendingCourierComment.value = courierComment;
+  pendingDeliveryMethod.value = null;
+  pendingNeighborName.value = "";
+  showSignature.value = false;
   confirmOrder.value = order;
 };
 
@@ -443,14 +487,20 @@ const openRefuse = (courierComment: string) => {
   refuseOrder.value = order;
 };
 
-const closeConfirm = () => {
-  if (submitting.value) {
-    return;
-  }
+const resetPendingDelivery = () => {
   confirmOrder.value = null;
   showSignature.value = false;
   pendingDeliveredIndexes.value = [];
   pendingCourierComment.value = "";
+  pendingDeliveryMethod.value = null;
+  pendingNeighborName.value = "";
+};
+
+const closeConfirm = () => {
+  if (submitting.value) {
+    return;
+  }
+  resetPendingDelivery();
 };
 
 const closeRefuse = () => {
@@ -545,15 +595,32 @@ const openStopMaps = async (order: RouteOrder, event?: Event) => {
   }
 };
 
-const onProofChoice = (type: ProofType) => {
-  if (!confirmOrder.value) {
-    return;
-  }
-  if (type === "photo") {
+const beginProofCapture = (choice: Extract<DeliveryMethodChoice, { proofType: ProofType }>) => {
+  pendingDeliveryMethod.value = choice.method;
+  pendingNeighborName.value = choice.neighborName?.trim() ?? "";
+  if (choice.proofType === "photo") {
     photoInput.value?.click();
     return;
   }
   showSignature.value = true;
+};
+
+const onMethodChoice = (choice: DeliveryMethodChoice) => {
+  if (!confirmOrder.value) {
+    return;
+  }
+
+  if (choice.method === "not_delivered") {
+    const order = confirmOrder.value;
+    confirmOrder.value = null;
+    showSignature.value = false;
+    pendingDeliveryMethod.value = null;
+    pendingNeighborName.value = "";
+    refuseOrder.value = order;
+    return;
+  }
+
+  beginProofCapture(choice);
 };
 
 const applyRouteMutation = (_order: RouteOrder, route: RouteDetail) => {
@@ -572,7 +639,8 @@ const submitProof = async (
 ) => {
   const order = confirmOrder.value;
   const routeId = selectedId.value;
-  if (!order || routeId === null) {
+  const deliveryMethod = pendingDeliveryMethod.value;
+  if (!order || routeId === null || !deliveryMethod) {
     return;
   }
 
@@ -583,17 +651,16 @@ const submitProof = async (
     const data = await completeOrderRequest(
       routeId,
       order.id,
+      deliveryMethod,
       proofType,
       file,
       filename,
       pendingDeliveredIndexes.value,
       pendingCourierComment.value,
+      pendingNeighborName.value || null,
     );
     applyRouteMutation(data.order, data.route);
-    confirmOrder.value = null;
-    showSignature.value = false;
-    pendingDeliveredIndexes.value = [];
-    pendingCourierComment.value = "";
+    resetPendingDelivery();
     selectedOrderId.value = null;
   } catch (e) {
     error.value = displayApiError(e, t, "delivery.submitFailed");
@@ -873,20 +940,6 @@ watch(
                 <div class="stop-card__heading">
                   <div class="stop-card__name">{{ order.clientName }}</div>
                   <div class="stop-card__aside">
-                    <div class="stop-card__badges">
-                      <span
-                        v-if="order.isExchange"
-                        class="stop-card__badge stop-card__badge--exchange"
-                      >
-                        {{ t("delivery.exchange") }}
-                      </span>
-                      <span
-                        class="stop-card__badge"
-                        :class="{ 'stop-card__badge--refused': isRefused(order) }"
-                      >
-                        {{ closedStatusLabel(order) }}
-                      </span>
-                    </div>
                     <button
                       v-if="stopMapsUrl(order)"
                       class="stop-card__map-btn"
@@ -906,6 +959,20 @@ watch(
                         <circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8" />
                       </svg>
                     </button>
+                    <div class="stop-card__badges">
+                      <span
+                        v-if="order.isExchange"
+                        class="stop-card__badge stop-card__badge--exchange"
+                      >
+                        {{ t("delivery.exchange") }}
+                      </span>
+                      <span
+                        class="stop-card__badge"
+                        :class="{ 'stop-card__badge--refused': isRefused(order) }"
+                      >
+                        {{ closedStatusLabel(order) }}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
@@ -968,12 +1035,6 @@ watch(
               <div class="stop-card__heading">
                 <div class="stop-card__name">{{ order.clientName }}</div>
                 <div class="stop-card__aside">
-                  <span
-                    v-if="order.isExchange"
-                    class="stop-card__badge stop-card__badge--exchange"
-                  >
-                    {{ t("delivery.exchange") }}
-                  </span>
                   <button
                     v-if="stopMapsUrl(order)"
                     class="stop-card__map-btn"
@@ -999,6 +1060,12 @@ watch(
                       />
                     </svg>
                   </button>
+                  <span
+                    v-if="order.isExchange"
+                    class="stop-card__badge stop-card__badge--exchange"
+                  >
+                    {{ t("delivery.exchange") }}
+                  </span>
                 </div>
               </div>
               <div v-if="order.phone" class="stop-card__phone stop-card__phone--plain">
@@ -1064,7 +1131,8 @@ watch(
 
     <ConfirmDeliverySheet
       v-if="confirmOrder && !showSignature"
-      @select="onProofChoice"
+      :can-partial="canPartialDelivery"
+      @select="onMethodChoice"
       @cancel="closeConfirm"
     />
 

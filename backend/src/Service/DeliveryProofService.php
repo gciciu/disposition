@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\DeliveryOrder;
+use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryOrderStatus;
 use App\Enum\DeliveryProofType;
 use Doctrine\ORM\EntityManagerInterface;
@@ -30,40 +31,38 @@ class DeliveryProofService
     }
 
     /**
+     * Complete a stop with Doc1 §4 delivery method A–D.
+     *
      * @param list<int>|null $deliveredProductIndexes null = all products delivered
      */
     public function completeWithProof(
         DeliveryOrder $order,
+        DeliveryMethod $deliveryMethod,
         DeliveryProofType $proofType,
         UploadedFile $file,
         ?array $deliveredProductIndexes = null,
         ?string $courierComment = null,
+        ?string $neighborName = null,
     ): DeliveryOrder {
         if ($order->getStatus()->isFinal()) {
             throw new ConflictHttpException('Order is already completed');
         }
 
-        $productCount = \count($order->getProducts());
-        if (null === $deliveredProductIndexes) {
-            $deliveredProductIndexes = $productCount > 0 ? range(0, $productCount - 1) : [];
-        } else {
-            $normalized = [];
-            foreach ($deliveredProductIndexes as $index) {
-                if (!\is_int($index) && !(\is_string($index) && ctype_digit((string) $index))) {
-                    throw new BadRequestHttpException('deliveredProductIndexes must be a list of integers');
-                }
-                $value = (int) $index;
-                if ($value < 0 || $value >= $productCount) {
-                    throw new BadRequestHttpException(sprintf(
-                        'deliveredProductIndexes contains invalid index %d',
-                        $value,
-                    ));
-                }
-                $normalized[$value] = $value;
-            }
-            $deliveredProductIndexes = array_values($normalized);
-            sort($deliveredProductIndexes);
+        if (!$deliveryMethod->isDeliveredOutcome()) {
+            throw new BadRequestHttpException('deliveryMethod must be personal, left_on_site, neighbor, or partial');
         }
+
+        $this->assertProofMatchesMethod($deliveryMethod, $proofType);
+
+        $productCount = \count($order->getProducts());
+        $deliveredProductIndexes = $this->normalizeDeliveredIndexes(
+            $order,
+            $deliveryMethod,
+            $deliveredProductIndexes,
+            $productCount,
+        );
+
+        $resolvedNeighbor = $this->resolveNeighborName($deliveryMethod, $neighborName);
 
         if (!$file->isValid()) {
             throw new BadRequestHttpException(sprintf('Proof upload failed: %s', $file->getErrorMessage()));
@@ -116,6 +115,9 @@ class DeliveryProofService
         $order
             ->setStatus(DeliveryOrderStatus::Delivered)
             ->setCompletedAt(new \DateTimeImmutable())
+            ->setDeliveryMethod($deliveryMethod)
+            ->setNeighborName($resolvedNeighbor)
+            ->setConfirmationEmailSentAt(null)
             ->setDeliveredProductIndexes($deliveredProductIndexes)
             ->setProofType($proofType)
             ->setProofPath($relativePath)
@@ -137,6 +139,9 @@ class DeliveryProofService
         $order
             ->setStatus(DeliveryOrderStatus::Refused)
             ->setCompletedAt(new \DateTimeImmutable())
+            ->setDeliveryMethod(DeliveryMethod::NotDelivered)
+            ->setNeighborName(null)
+            ->setConfirmationEmailSentAt(null)
             ->setDeliveredProductIndexes([])
             ->setProofType(null)
             ->setProofPath(null)
@@ -147,6 +152,12 @@ class DeliveryProofService
         $this->realtime->publishOrderRefused($order);
 
         return $order;
+    }
+
+    public function markConfirmationEmailSent(DeliveryOrder $order): void
+    {
+        $order->setConfirmationEmailSentAt(new \DateTimeImmutable());
+        $this->em->flush();
     }
 
     public function absoluteProofPath(DeliveryOrder $order): ?string
@@ -162,6 +173,95 @@ class DeliveryProofService
         }
 
         return $absolute;
+    }
+
+    private function assertProofMatchesMethod(DeliveryMethod $method, DeliveryProofType $proofType): void
+    {
+        if ($method->requiresSignature() && DeliveryProofType::Signature !== $proofType) {
+            throw new BadRequestHttpException(sprintf(
+                'deliveryMethod "%s" requires proofType signature',
+                $method->value,
+            ));
+        }
+
+        if ($method->requiresPhoto() && DeliveryProofType::Photo !== $proofType) {
+            throw new BadRequestHttpException(sprintf(
+                'deliveryMethod "%s" requires proofType photo',
+                $method->value,
+            ));
+        }
+
+        if ($method->allowsPhotoOrSignature()
+            && !\in_array($proofType, [DeliveryProofType::Photo, DeliveryProofType::Signature], true)
+        ) {
+            throw new BadRequestHttpException('deliveryMethod "partial" requires proofType photo or signature');
+        }
+    }
+
+    /**
+     * @param list<int>|null $deliveredProductIndexes
+     *
+     * @return list<int>
+     */
+    private function normalizeDeliveredIndexes(
+        DeliveryOrder $order,
+        DeliveryMethod $deliveryMethod,
+        ?array $deliveredProductIndexes,
+        int $productCount,
+    ): array {
+        if (null === $deliveredProductIndexes) {
+            if (DeliveryMethod::Partial === $deliveryMethod) {
+                throw new BadRequestHttpException(
+                    'deliveredProductIndexes is required for partial delivery and must be a proper subset',
+                );
+            }
+
+            return $productCount > 0 ? range(0, $productCount - 1) : [];
+        }
+
+        $normalized = [];
+        foreach ($deliveredProductIndexes as $index) {
+            if (!\is_int($index) && !(\is_string($index) && ctype_digit((string) $index))) {
+                throw new BadRequestHttpException('deliveredProductIndexes must be a list of integers');
+            }
+            $value = (int) $index;
+            if ($value < 0 || $value >= $productCount) {
+                throw new BadRequestHttpException(sprintf(
+                    'deliveredProductIndexes contains invalid index %d',
+                    $value,
+                ));
+            }
+            $normalized[$value] = $value;
+        }
+        $deliveredProductIndexes = array_values($normalized);
+        sort($deliveredProductIndexes);
+
+        if (DeliveryMethod::Partial === $deliveryMethod) {
+            if (0 === \count($deliveredProductIndexes)) {
+                throw new BadRequestHttpException('Partial delivery requires at least one delivered product');
+            }
+            if ($productCount > 0 && \count($deliveredProductIndexes) >= $productCount) {
+                throw new BadRequestHttpException(
+                    'Partial delivery must deliver fewer than all products; use personal/left_on_site/neighbor for full delivery',
+                );
+            }
+        }
+
+        return $deliveredProductIndexes;
+    }
+
+    private function resolveNeighborName(DeliveryMethod $deliveryMethod, ?string $neighborName): ?string
+    {
+        if (DeliveryMethod::Neighbor !== $deliveryMethod) {
+            return null;
+        }
+
+        $trimmed = null !== $neighborName ? trim($neighborName) : '';
+        if ('' === $trimmed) {
+            throw new BadRequestHttpException('neighborName is required for neighbor delivery');
+        }
+
+        return $trimmed;
     }
 
     private function uploadsRoot(): string

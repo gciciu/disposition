@@ -766,6 +766,7 @@ body {
 }
 
 .stop-card__name {
+  flex: 1 1 8rem;
   min-width: 0;
   font-weight: 600;
   font-size: 1rem;
@@ -801,10 +802,13 @@ body {
 
 .stop-card__aside {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.4rem;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 14rem);
   margin-left: auto;
 }
 
@@ -836,6 +840,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 1.7rem;
   height: 1.7rem;
   padding: 0;
@@ -898,6 +903,7 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .stop-card__badges {
@@ -905,10 +911,12 @@ body {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .stop-card__badge {
-  flex-shrink: 0;
+  max-width: 100%;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
   background: rgba(22, 163, 74, 0.12);
@@ -916,7 +924,10 @@ body {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  text-transform: uppercase;
+  line-height: 1.25;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .stop-card__badge--refused {

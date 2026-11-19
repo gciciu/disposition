@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Dto\DeliveryConfirmationPdf\DeliveryConfirmationPdfCompany;
 use App\Dto\DeliveryConfirmationPdf\DeliveryConfirmationPdfDocument;
 use App\Entity\DeliveryOrder;
+use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryOrderStatus;
 use App\Enum\DeliveryProofType;
 use App\Util\AddressFormatter;
@@ -112,9 +113,10 @@ class DeliveryConfirmationPdfBuilder
 
         $proofType = $order->getProofType();
         $deliveryMethod = $overrides['deliveryMethod']
-            ?? $this->defaultDeliveryMethod($proofType);
+            ?? $this->defaultDeliveryMethod($order->getDeliveryMethod(), $proofType);
 
         $products = $this->deliveredProducts($order);
+        $additionalInfo = $overrides['additionalInfo'] ?? $this->defaultAdditionalInfo($order);
 
         return new DeliveryConfirmationPdfDocument(
             company: $this->buildCompany($overrides['company'] ?? []),
@@ -128,13 +130,15 @@ class DeliveryConfirmationPdfBuilder
                 $order->getFormattedAddress() ?? $order->getAddress(),
             ) ?? $order->getAddress(),
             customerPhone: $order->getPhone(),
-            customerEmail: $overrides['customerEmail'] ?? null,
+            customerEmail: \array_key_exists('customerEmail', $overrides)
+                ? $overrides['customerEmail']
+                : $order->getEmail(),
             driverName: $route?->getCourier()?->getUser()?->getName() ?? '',
             deliveryAtLabel: $createdLabel,
             deliveryMethod: $deliveryMethod,
             products: $products,
             weightKg: $overrides['weightKg'] ?? null,
-            additionalInfo: $overrides['additionalInfo'] ?? null,
+            additionalInfo: $additionalInfo,
             proofImageDataUri: $this->proofDataUri($order),
             proofSectionTitle: $overrides['proofSectionTitle']
                 ?? $this->defaultProofSectionTitle($proofType),
@@ -196,13 +200,37 @@ class DeliveryConfirmationPdfBuilder
         return 'data:'.$mime.';base64,'.base64_encode($binary);
     }
 
-    private function defaultDeliveryMethod(?DeliveryProofType $proofType): string
+    private function defaultDeliveryMethod(?DeliveryMethod $method, ?DeliveryProofType $proofType): string
     {
+        if (null !== $method) {
+            return $method->labelDe();
+        }
+
+        // Legacy fallback when deliveryMethod was not stored yet.
         return match ($proofType) {
             DeliveryProofType::Photo => DeliveryConfirmationPdfDocument::METHOD_LEFT_ON_SITE,
             DeliveryProofType::Signature => DeliveryConfirmationPdfDocument::METHOD_PERSONAL,
             default => DeliveryConfirmationPdfDocument::METHOD_LEFT_ON_SITE,
         };
+    }
+
+    private function defaultAdditionalInfo(DeliveryOrder $order): ?string
+    {
+        $parts = [];
+        $neighbor = $order->getNeighborName();
+        if (null !== $neighbor && '' !== $neighbor) {
+            $parts[] = 'Nachbar: '.$neighbor;
+        }
+        $comment = $order->getCourierComment();
+        if (null !== $comment && '' !== $comment) {
+            $parts[] = $comment;
+        }
+
+        if ([] === $parts) {
+            return null;
+        }
+
+        return implode("\n", $parts);
     }
 
     private function defaultProofSectionTitle(?DeliveryProofType $proofType): string
