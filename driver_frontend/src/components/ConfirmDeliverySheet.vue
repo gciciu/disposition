@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { DeliveryMethod, ProofType } from "../api";
+import type { ProofType } from "../api";
 
 const props = defineProps<{
-  /** True when selected products are a proper subset (needed for Teillieferung). */
+  /** True when selected products are a proper subset → treat as Teillieferung automatically. */
   canPartial: boolean;
 }>();
 
@@ -25,19 +25,19 @@ const { t } = useI18n();
 
 type Step = "method" | "neighbor" | "partialProof";
 
-const step = ref<Step>("method");
+/** Partial is inferred from unchecked products — no separate method button. */
+const step = ref<Step>(props.canPartial ? "partialProof" : "method");
 const neighborName = ref("");
 const neighborError = ref("");
 
 const methods: Array<{
-  id: Exclude<DeliveryMethod, "not_delivered"> | "not_delivered";
+  id: "personal" | "left_on_site" | "neighbor" | "not_delivered";
   labelKey: string;
   danger?: boolean;
 }> = [
   { id: "personal", labelKey: "delivery.methodPersonal" },
   { id: "left_on_site", labelKey: "delivery.methodLeftOnSite" },
   { id: "neighbor", labelKey: "delivery.methodNeighbor" },
-  { id: "partial", labelKey: "delivery.methodPartial" },
   { id: "not_delivered", labelKey: "delivery.methodNotDelivered", danger: true },
 ];
 
@@ -81,15 +81,6 @@ const onMethod = (id: (typeof methods)[number]["id"]) => {
 
   if (id === "neighbor") {
     step.value = "neighbor";
-    return;
-  }
-
-  if (id === "partial") {
-    if (!props.canPartial) {
-      neighborError.value = t("delivery.partialNeedsSubset");
-      return;
-    }
-    step.value = "partialProof";
   }
 };
 
@@ -112,6 +103,11 @@ const onPartialProof = (proofType: ProofType) => {
 
 const goBack = () => {
   if (step.value === "method") {
+    emit("cancel");
+    return;
+  }
+  // Auto-opened partial proof has no prior method step — cancel instead.
+  if (step.value === "partialProof" && props.canPartial) {
     emit("cancel");
     return;
   }
