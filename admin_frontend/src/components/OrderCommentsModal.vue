@@ -38,6 +38,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  courierComment: {
+    type: String,
+    default: '',
+  },
   clientName: {
     type: String,
     default: '',
@@ -188,6 +192,18 @@ const swatchClass = (color) => COLOR_SWATCH[color] || COLOR_SWATCH.amber
     @cancel="cancel"
   >
     <CardBoxModalBody>
+      <div
+        v-if="props.courierComment"
+        class="mb-4 rounded border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-600 dark:bg-slate-800/60"
+      >
+        <div class="mb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase">
+          {{ t('deliveryRoutes.courierComment') }}
+        </div>
+        <div class="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-200">
+          {{ props.courierComment }}
+        </div>
+      </div>
+
       <div v-if="!draft.length" class="mb-4 text-sm text-gray-500 dark:text-slate-400">
         {{ t('deliveryRoutes.commentsEmpty') }}
       </div>

@@ -191,19 +191,7 @@ const openCommentsModal = (order) => {
 }
 
 const onCommentsSaved = (routeData) => {
-  if (!routeData) {
-    return
-  }
-  detail.value = routeData
-  syncSelectedCourier()
-  syncSelectedWarehouse()
-  syncScheduleFields()
-  syncUnloadDrafts({ preserveDirty: true })
-  syncAddressDrafts()
-  if (commentsOrder.value?.id != null) {
-    commentsOrder.value =
-      routeData.orders?.find((item) => item.id === commentsOrder.value.id) ?? null
-  }
+  applyRouteData(routeData, { preserveDirty: true })
 }
 
 const isOrderFinished = (order) =>
@@ -381,22 +369,44 @@ const loadSchedule = async () => {
   }
 }
 
-const loadRoute = async () => {
-  loading.value = true
-  detail.value = null
+const sameId = (left, right) =>
+  left != null && right != null && Number(left) === Number(right)
+
+const applyRouteData = (routeData, { preserveDirty = false } = {}) => {
+  if (!routeData) {
+    return
+  }
+  detail.value = routeData
+  syncSelectedCourier()
+  syncSelectedWarehouse()
+  syncScheduleFields()
+  syncUnloadDrafts({ preserveDirty })
+  syncAddressDrafts()
+  if (commentsOrder.value?.id != null) {
+    commentsOrder.value =
+      routeData.orders?.find((item) => sameId(item.id, commentsOrder.value.id)) ?? null
+  }
+}
+
+const loadRoute = async ({ silent = false } = {}) => {
+  if (!silent) {
+    loading.value = true
+    detail.value = null
+  }
   try {
     const { data } = await api.get(`/api/admin/routes/${route.params.id}`)
-    detail.value = data.route
-    syncSelectedCourier()
-    syncSelectedWarehouse()
-    syncScheduleFields()
-    syncUnloadDrafts()
-    syncAddressDrafts()
-    await loadSchedule()
+    applyRouteData(data.route, { preserveDirty: silent })
+    if (!silent) {
+      await loadSchedule()
+    }
   } catch (e) {
-    showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
+    if (!silent) {
+      showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
+    }
   } finally {
-    loading.value = false
+    if (!silent) {
+      loading.value = false
+    }
   }
 }
 
@@ -616,7 +626,7 @@ const applyRealtimePayload = (event, data) => {
   if (!detail.value || !data?.route) {
     return
   }
-  if (data.route.id != null && data.route.id !== detail.value.id) {
+  if (data.route.id != null && !sameId(data.route.id, detail.value.id)) {
     return
   }
 
@@ -626,34 +636,34 @@ const applyRealtimePayload = (event, data) => {
     event === 'route.continued' ||
     event === 'route.delayed'
   ) {
-    detail.value = data.route
-    syncSelectedCourier()
-    syncSelectedWarehouse()
-    syncUnloadDrafts({ preserveDirty: true })
-    syncAddressDrafts()
+    applyRouteData(data.route, { preserveDirty: true })
     return
   }
 
   if (event === 'order.completed' || event === 'order.refused') {
     const next = { ...data.route }
     if (data.order?.id != null && Array.isArray(next.orders)) {
-      const orderIndex = next.orders.findIndex((item) => item.id === data.order.id)
+      const orderIndex = next.orders.findIndex((item) =>
+        sameId(item.id, data.order.id),
+      )
       if (orderIndex !== -1) {
         next.orders = [...next.orders]
-        next.orders[orderIndex] = data.order
+        next.orders[orderIndex] = {
+          ...next.orders[orderIndex],
+          ...data.order,
+        }
       }
     }
-    detail.value = next
-    syncSelectedCourier()
-    syncSelectedWarehouse()
-    syncUnloadDrafts({ preserveDirty: true })
-    syncAddressDrafts()
+    applyRouteData(next, { preserveDirty: true })
   }
 }
 
 const { start: startRealtime, stop: stopRealtime } = useRealtime({
   routeId: () => route.params.id,
   onEvent: applyRealtimePayload,
+  onResync: () => {
+    void loadRoute({ silent: true })
+  },
 })
 
 onMounted(async () => {
@@ -705,18 +715,6 @@ watch(
             @click="router.push({ name: 'routes' })"
           />
           <BaseButton
-            v-if="detail && canDownloadCompletionPdf"
-            :label="
-              downloadingPdf
-                ? t('deliveryRoutes.downloadingPdf')
-                : t('deliveryRoutes.downloadPdf')
-            "
-            :icon="downloadingPdf ? mdiLoading : mdiFilePdfBox"
-            color="success"
-            :disabled="downloadingPdf || loading"
-            @click="downloadCompletionPdf"
-          />
-          <BaseButton
             v-if="detail && canEditAssignment"
             :label="saving ? t('deliveryRoutes.saving') : t('deliveryRoutes.save')"
             :icon="saving ? mdiLoading : mdiContentSave"
@@ -763,14 +761,28 @@ watch(
                 <div>{{ routeStatusLabel }}</div>
               </div>
             </div>
-            <BaseButton
-              v-if="detail.mapsUrl"
-              color="success"
-              :icon="mdiGoogleMaps"
-              :label="t('deliveryRoutes.openMaps')"
-              :href="detail.mapsUrl"
-              target="_blank"
-            />
+            <div class="flex flex-wrap items-center gap-2">
+              <BaseButton
+                v-if="detail.mapsUrl"
+                color="success"
+                :icon="mdiGoogleMaps"
+                :label="t('deliveryRoutes.openMaps')"
+                :href="detail.mapsUrl"
+                target="_blank"
+              />
+              <BaseButton
+                v-if="canDownloadCompletionPdf"
+                color="success"
+                :icon="downloadingPdf ? mdiLoading : mdiFilePdfBox"
+                :label="
+                  downloadingPdf
+                    ? t('deliveryRoutes.downloadingPdf')
+                    : t('deliveryRoutes.downloadPdf')
+                "
+                :disabled="downloadingPdf || loading"
+                @click="downloadCompletionPdf"
+              />
+            </div>
           </div>
         </CardBox>
 
@@ -1122,6 +1134,7 @@ watch(
           :route-id="detail?.id"
           :order-id="commentsOrder?.id"
           :comments="commentsOrder?.comments ?? []"
+          :courier-comment="commentsOrder?.courierComment ?? ''"
           :client-name="commentsOrder?.clientName ?? ''"
           @saved="onCommentsSaved"
         />

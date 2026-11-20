@@ -6,7 +6,8 @@ import api from '@/api.js'
  *
  * @param {{
  *   routeId?: number|string|null|(() => number|string|null|undefined),
- *   onEvent: (event: string, data: any) => void
+ *   onEvent: (event: string, data: any) => void,
+ *   onResync?: () => void
  * }} options
  */
 export function useRealtime(options = {}) {
@@ -16,8 +17,11 @@ export function useRealtime(options = {}) {
   let reconnectTimer = null
   let backoffMs = 1000
   let ticketExpiresAt = 0
+  let hadOpenConnection = false
+  let wasHidden = false
 
   const onEvent = typeof options.onEvent === 'function' ? options.onEvent : () => {}
+  const onResync = typeof options.onResync === 'function' ? options.onResync : null
 
   const resolveRouteId = () => {
     const value = typeof options.routeId === 'function' ? options.routeId() : options.routeId
@@ -59,6 +63,17 @@ export function useRealtime(options = {}) {
     reconnectTimer = setTimeout(() => {
       void connect()
     }, delay)
+  }
+
+  const requestResync = () => {
+    if (!onResync || stopped) {
+      return
+    }
+    try {
+      onResync()
+    } catch {
+      // ignore listener errors
+    }
   }
 
   const fetchTicket = async () => {
@@ -123,6 +138,12 @@ export function useRealtime(options = {}) {
     source.onopen = () => {
       connected.value = true
       backoffMs = 1000
+      // First open happens right after the initial HTTP load — skip.
+      // Later opens mean we dropped the stream and may have missed events.
+      if (hadOpenConnection) {
+        requestResync()
+      }
+      hadOpenConnection = true
     }
 
     source.onmessage = (message) => {
@@ -148,15 +169,39 @@ export function useRealtime(options = {}) {
     }
   }
 
+  const onVisibilityChange = () => {
+    if (typeof document === 'undefined') {
+      return
+    }
+    if (document.hidden) {
+      wasHidden = true
+      return
+    }
+    if (wasHidden && !stopped) {
+      wasHidden = false
+      // Background tabs often drop SSE; refresh once we are visible again.
+      requestResync()
+    }
+  }
+
   const stop = () => {
     stopped = true
     clearReconnect()
     closeSource()
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }
 
   const start = () => {
     stopped = false
     backoffMs = 1000
+    hadOpenConnection = false
+    wasHidden = false
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
     void connect()
   }
 
@@ -188,6 +233,9 @@ export function applyRouteListPatch(existing, routePayload) {
     completedAt: Object.prototype.hasOwnProperty.call(routePayload, 'completedAt')
       ? routePayload.completedAt
       : existing.completedAt,
+    hasCompletionPdf: Object.prototype.hasOwnProperty.call(routePayload, 'hasCompletionPdf')
+      ? routePayload.hasCompletionPdf
+      : existing.hasCompletionPdf,
     totalDurationSeconds: routePayload.totalDurationSeconds ?? existing.totalDurationSeconds,
     totalDistanceMeters: routePayload.totalDistanceMeters ?? existing.totalDistanceMeters,
     totalDurationText: routePayload.totalDurationText ?? existing.totalDurationText,

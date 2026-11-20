@@ -257,12 +257,7 @@ const openCommentsModal = () => {
 }
 
 const onCommentsSaved = (routeData) => {
-  if (!routeData) {
-    return
-  }
-  routeDetail.value = routeData
-  syncUnloadDraft({ preserveDirty: true })
-  syncAddressDraft()
+  applyRouteData(routeData, { preserveDirty: true })
 }
 
 const isOrderFinished = computed(
@@ -356,23 +351,35 @@ const productBackgroundStyle = (item, index) => {
   return { backgroundColor: color }
 }
 
-const loadRoute = async () => {
-  loading.value = true
-  routeDetail.value = null
-  unloadDraft.value = null
+const applyRouteData = (routeData, { preserveDirty = false } = {}) => {
+  if (!routeData) {
+    return
+  }
+  routeDetail.value = routeData
+  syncUnloadDraft({ preserveDirty })
+  syncAddressDraft()
+}
+
+const loadRoute = async ({ silent = false } = {}) => {
+  if (!silent) {
+    loading.value = true
+    routeDetail.value = null
+    unloadDraft.value = null
+  }
   try {
     const { data } = await api.get(`/api/admin/routes/${route.params.id}`)
-    routeDetail.value = data.route
-    if (!order.value) {
+    applyRouteData(data.route, { preserveDirty: silent })
+    if (!silent && !order.value) {
       toast.error(t('deliveryRoutes.loadOrderFailed'))
-    } else {
-      syncUnloadDraft()
-      syncAddressDraft()
     }
   } catch (e) {
-    showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
+    if (!silent) {
+      showApiError(toast, e, t('deliveryRoutes.loadDetailFailed'))
+    }
   } finally {
-    loading.value = false
+    if (!silent) {
+      loading.value = false
+    }
   }
 }
 
@@ -380,11 +387,14 @@ const backToRoute = () => {
   router.push({ name: 'route-detail', params: { id: route.params.id } })
 }
 
+const sameId = (left, right) =>
+  left != null && right != null && Number(left) === Number(right)
+
 const applyRealtimePayload = (event, data) => {
   if (!routeDetail.value || !data?.route) {
     return
   }
-  if (data.route.id != null && data.route.id !== routeDetail.value.id) {
+  if (data.route.id != null && !sameId(data.route.id, routeDetail.value.id)) {
     return
   }
 
@@ -394,30 +404,32 @@ const applyRealtimePayload = (event, data) => {
     event === 'route.continued' ||
     event === 'route.delayed'
   ) {
-    routeDetail.value = data.route
-    syncUnloadDraft({ preserveDirty: true })
-    syncAddressDraft()
+    applyRouteData(data.route, { preserveDirty: true })
     return
   }
 
   if (event === 'order.completed' || event === 'order.refused') {
     const next = { ...data.route }
     if (data.order?.id != null && Array.isArray(next.orders)) {
-      const orderIndex = next.orders.findIndex((item) => item.id === data.order.id)
+      const orderIndex = next.orders.findIndex((item) => sameId(item.id, data.order.id))
       if (orderIndex !== -1) {
         next.orders = [...next.orders]
-        next.orders[orderIndex] = data.order
+        next.orders[orderIndex] = {
+          ...next.orders[orderIndex],
+          ...data.order,
+        }
       }
     }
-    routeDetail.value = next
-    syncUnloadDraft({ preserveDirty: true })
-    syncAddressDraft()
+    applyRouteData(next, { preserveDirty: true })
   }
 }
 
 const { start: startRealtime, stop: stopRealtime } = useRealtime({
   routeId: () => route.params.id,
   onEvent: applyRealtimePayload,
+  onResync: () => {
+    void loadRoute({ silent: true })
+  },
 })
 
 onMounted(async () => {
@@ -672,6 +684,7 @@ watch(
           :route-id="routeDetail?.id"
           :order-id="order?.id"
           :comments="order?.comments ?? []"
+          :courier-comment="order?.courierComment ?? ''"
           :client-name="order?.clientName ?? ''"
           @saved="onCommentsSaved"
         />
