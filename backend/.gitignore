@@ -23,5 +23,6 @@
 /config/jwt/*.pem
 ###< lexik/jwt-authentication-bundle ###
 
-# Copied from admin_frontend/dist on `npm run build`
+# Copied from frontend dist/ on `npm run build`
 /public/spa/
+/public/driver-spa/

@@ -24,7 +24,8 @@ final class DeliveryConfirmationPdfDocument
     public const METHOD_NOT_DELIVERED = 'Nicht zugestellt';
 
     /**
-     * @param list<string> $products Delivered article lines
+     * @param list<string>      $products                Delivered article lines
+     * @param list<string|null> $productBackgroundColors Hex colors parallel to $products (from import)
      */
     public function __construct(
         public readonly DeliveryConfirmationPdfCompany $company,
@@ -52,6 +53,8 @@ final class DeliveryConfirmationPdfDocument
         public readonly ?string $proofImageDataUri,
         /** "Lieferfoto" or "Unterschrift". */
         public readonly string $proofSectionTitle,
+        public readonly bool $proofIsSignature = false,
+        public readonly array $productBackgroundColors = [],
     ) {
     }
 
@@ -75,10 +78,12 @@ final class DeliveryConfirmationPdfDocument
             'deliveryAtLabel' => $this->deliveryAtLabel,
             'deliveryMethod' => $this->deliveryMethod,
             'products' => $this->products,
+            'productBackgroundColors' => $this->productBackgroundColors,
             'weightKg' => $this->weightKg,
             'additionalInfo' => $this->additionalInfo,
             'hasProofImage' => null !== $this->proofImageDataUri,
             'proofSectionTitle' => $this->proofSectionTitle,
+            'proofIsSignature' => $this->proofIsSignature,
         ];
     }
 }

@@ -19,6 +19,12 @@ parameters:
     env(DRIVER_APP_FORCE_UPDATE): '0'
     env(DRIVER_APP_CHANGELOG): ''
     env(DRIVER_APP_APK_FILENAME): 'driver.apk'
+    # Hostnames that select which SPA Symfony serves from backend/public.
+    # Local defaults keep routes distinct (API on localhost → admin SPA).
+    env(ADMIN_HOST): 'localhost'
+    env(DRIVER_HOST): 'driver.localhost'
+    admin.host: '%env(ADMIN_HOST)%'
+    driver.host: '%env(DRIVER_HOST)%'
     app.company:
         name: '%env(COMPANY_NAME)%'
         address: '%env(COMPANY_ADDRESS)%'
@@ -37,7 +43,7 @@ services:
     App\:
         resource: '../src/'
 
-    App\Controller\AdminSpaController:
+    App\Service\SpaDistResponder:
         arguments:
             $projectDir: '%kernel.project_dir%'
 

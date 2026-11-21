@@ -120,6 +120,13 @@
         .signature img {
             max-width: 70px;
             max-height: 36px;
+            border: none;
+            background: transparent;
+        }
+
+        .products-list .has-bg {
+            display: inline;
+            padding: 1px 3px;
         }
 
         .remarks {
@@ -212,7 +219,14 @@
                         {% if stop.products %}
                             <ul class="products-list">
                                 {% for product in stop.products %}
-                                    <li>{{ product }}</li>
+                                    {% set bg = stop.productBackgroundColors[loop.index0] ?? null %}
+                                    <li>
+                                        {% if bg %}
+                                            <span class="has-bg" style="background-color: {{ bg }};">{{ product }}</span>
+                                        {% else %}
+                                            {{ product }}
+                                        {% endif %}
+                                    </li>
                                 {% endfor %}
                             </ul>
                         {% endif %}

@@ -9,7 +9,8 @@ namespace App\Dto\RouteCompletionPdf;
 final class RouteCompletionPdfStop
 {
     /**
-     * @param list<string> $products Product lines shown under Artikel
+     * @param list<string>      $products                Product lines shown under Artikel
+     * @param list<string|null> $productBackgroundColors Hex colors parallel to $products (from import)
      */
     public function __construct(
         public readonly int $position,
@@ -30,6 +31,7 @@ final class RouteCompletionPdfStop
         public readonly ?string $customerRemark,
         /** Driver note (Fahrerbemerkung). */
         public readonly ?string $driverRemark,
+        public readonly array $productBackgroundColors = [],
     ) {
     }
 
@@ -60,6 +62,7 @@ final class RouteCompletionPdfStop
             'phone' => $this->phone,
             'address' => $this->address,
             'products' => $this->products,
+            'productBackgroundColors' => $this->productBackgroundColors,
             'weightKg' => $this->weightKg,
             'date' => $this->date,
             'time' => $this->time,

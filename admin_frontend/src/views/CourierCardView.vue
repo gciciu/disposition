@@ -78,9 +78,9 @@ const submit = async () => {
 
   try {
     if (isNew.value) {
-      const { data } = await api.post('/api/admin/couriers', payload)
+      await api.post('/api/admin/couriers', payload)
       toast.success(t('couriers.created'))
-      await router.replace({ name: 'courier', params: { id: data.courier.id } })
+      await router.replace({ name: 'couriers' })
     } else {
       const { data } = await api.put(`/api/admin/couriers/${route.params.id}`, payload)
       form.name = data.courier.name ?? ''

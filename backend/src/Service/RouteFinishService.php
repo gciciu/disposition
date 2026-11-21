@@ -15,6 +15,8 @@ class RouteFinishService
         private readonly EntityManagerInterface $em,
         private readonly RouteCompletionPdfService $completionPdf,
         private readonly DriverRealtimePublisher $realtime,
+        private readonly AppSettingsService $settings,
+        private readonly EmailService $emailService,
         private readonly string $projectDir,
     ) {
     }
@@ -34,7 +36,8 @@ class RouteFinishService
         }
 
         $route->setCompletedAt(new \DateTimeImmutable());
-        $this->storePdf($route);
+        $stored = $this->storePdf($route);
+        $this->maybeEmailCompletionPdf($route, $stored['pdf'], $stored['filename']);
 
         $this->em->flush();
         $this->realtime->publishRouteCompleted($route);
@@ -101,7 +104,10 @@ class RouteFinishService
         return $absolute;
     }
 
-    private function storePdf(DeliveryRoute $route): void
+    /**
+     * @return array{pdf: string, filename: string}
+     */
+    private function storePdf(DeliveryRoute $route): array
     {
         $routeId = $route->getId();
         if (null === $routeId) {
@@ -123,6 +129,31 @@ class RouteFinishService
         }
 
         $route->setCompletionPdfPath($relativeDir.'/'.$filename);
+
+        return ['pdf' => $pdf, 'filename' => $filename];
+    }
+
+    /**
+     * Best-effort: send the completion PDF to the configured settings recipient.
+     * Failures must not block route finish.
+     */
+    private function maybeEmailCompletionPdf(DeliveryRoute $route, string $pdf, string $filename): void
+    {
+        $to = $this->settings->getPdfReportRecipientEmail();
+        if (null === $to) {
+            return;
+        }
+
+        try {
+            $this->emailService->sendRouteCompletionReport(
+                $to,
+                $pdf,
+                $filename,
+                $route->getName(),
+            );
+        } catch (\Throwable) {
+            // Keep the route completed even if outbound mail fails.
+        }
     }
 
     private function uploadsRoot(): string

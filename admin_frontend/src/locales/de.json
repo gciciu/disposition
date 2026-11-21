@@ -37,6 +37,7 @@
     "warehouse": "Lager",
     "warehouseNew": "Neues Lager",
     "emailTest": "E-Mail-Test",
+    "settings": "Einstellungen",
     "tables": "Tabellen",
     "forms": "Formulare",
     "profile": "Profil",
@@ -361,6 +362,18 @@
     "discarded": "Von null-Transport akzeptiert — setzen Sie einen echten MAILER_DSN für Zustellung",
     "failed": "Test-E-Mail konnte nicht gesendet werden",
     "lastResult": "Letztes Ergebnis"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "description": "Anwendungseinstellungen für den Lieferprozess.",
+    "pdfReportRecipientEmail": "Empfänger PDF-Bericht",
+    "pdfReportRecipientEmailHelp": "Nach Abschluss einer Tour wird der Tourabschlussbericht als PDF an diese Adresse gesendet. Leer lassen, um den Versand zu deaktivieren.",
+    "pdfReportRecipientEmailPlaceholder": "berichte{'@'}beispiel.de",
+    "save": "Speichern",
+    "saving": "Wird gespeichert…",
+    "saved": "Einstellungen gespeichert",
+    "loadFailed": "Einstellungen konnten nicht geladen werden",
+    "saveFailed": "Einstellungen konnten nicht gespeichert werden"
   },
   "warehouses": {
     "title": "Lager",

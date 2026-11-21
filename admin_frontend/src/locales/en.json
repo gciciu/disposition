@@ -37,6 +37,7 @@
     "warehouse": "Warehouse",
     "warehouseNew": "New warehouse",
     "emailTest": "Email test",
+    "settings": "Settings",
     "tables": "Tables",
     "forms": "Forms",
     "profile": "Profile",
@@ -361,6 +362,18 @@
     "discarded": "Accepted by null transport — set a real MAILER_DSN to deliver mail",
     "failed": "Could not send test email",
     "lastResult": "Last result"
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Application settings used by the delivery workflow.",
+    "pdfReportRecipientEmail": "PDF report recipient",
+    "pdfReportRecipientEmailHelp": "After a route is finished, the completion PDF is emailed to this address. Leave empty to disable sending.",
+    "pdfReportRecipientEmailPlaceholder": "reports{'@'}example.com",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Settings saved",
+    "loadFailed": "Could not load settings",
+    "saveFailed": "Could not save settings"
   },
   "warehouses": {
     "title": "Warehouses",

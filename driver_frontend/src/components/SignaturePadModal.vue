@@ -91,8 +91,8 @@ const clearPad = (markEmpty = true) => {
   if (!canvas || !ctx) {
     return;
   }
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Keep PNG transparent so the report does not show a white framed box.
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (markEmpty) {
     empty.value = true;
   }

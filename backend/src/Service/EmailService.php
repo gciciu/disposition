@@ -151,6 +151,41 @@ class EmailService
         return $result + ['filename' => $filename];
     }
 
+    /**
+     * Sends the route completion PDF report to the configured admin recipient.
+     *
+     * @return array{to: string, subject: string, discarded: bool, filename: string}
+     */
+    public function sendRouteCompletionReport(
+        string $to,
+        string $pdfBinary,
+        string $filename,
+        string $routeName,
+    ): array {
+        $routeLabel = trim($routeName) !== '' ? trim($routeName) : 'Route';
+        $subject = 'Tourabschlussbericht — '.$routeLabel;
+        $text = "Guten Tag,\n\n"
+            ."anbei erhalten Sie den Tourabschlussbericht für die Route „".$routeLabel."“.\n\n"
+            ."Mit freundlichen Grüßen\n"
+            ."MySpiegel-Lieferservice\n";
+
+        $html = '<p>Guten Tag,</p>'
+            .'<p>anbei erhalten Sie den <strong>Tourabschlussbericht</strong> für die Route „'
+            .htmlspecialchars($routeLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            .'“.</p>'
+            .'<p>Mit freundlichen Grüßen<br>MySpiegel-Lieferservice</p>';
+
+        $result = $this->send($to, $subject, $text, $html, [
+            [
+                'content' => $pdfBinary,
+                'filename' => $filename,
+                'contentType' => 'application/pdf',
+            ],
+        ]);
+
+        return $result + ['filename' => $filename];
+    }
+
     public function isNullTransport(): bool
     {
         return str_starts_with(strtolower(trim($this->mailerDsn)), 'null://');

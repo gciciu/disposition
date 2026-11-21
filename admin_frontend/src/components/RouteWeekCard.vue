@@ -5,6 +5,8 @@ import {
   mdiMap,
   mdiPencil,
   mdiTrashCan,
+  mdiFilePdfBox,
+  mdiLoading,
 } from '@mdi/js'
 import CardBox from '@/components/CardBox.vue'
 import BaseButton from '@/components/BaseButton.vue'
@@ -15,9 +17,13 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  downloadingPdfRouteId: {
+    type: [Number, String],
+    default: null,
+  },
 })
 
-const emit = defineEmits(['edit', 'delete-week', 'open-maps', 'open-detail'])
+const emit = defineEmits(['edit', 'delete-week', 'open-maps', 'open-detail', 'download-pdf'])
 
 const { t } = useI18n()
 
@@ -39,6 +45,29 @@ const actionRoute = computed(() => {
   const todayDay = daysWithRoute.value.find((day) => day.date === today)
   return todayDay?.route ?? daysWithRoute.value[0]?.route ?? null
 })
+
+const isPdfReady = (route) =>
+  Boolean(route?.completedAt) || Boolean(route?.hasCompletionPdf)
+
+/** Prefer today's/action route when finished; otherwise the latest finished day. */
+const pdfRoute = computed(() => {
+  if (isPdfReady(actionRoute.value)) {
+    return actionRoute.value
+  }
+  for (let i = daysWithRoute.value.length - 1; i >= 0; i -= 1) {
+    const route = daysWithRoute.value[i]?.route
+    if (isPdfReady(route)) {
+      return route
+    }
+  }
+  return null
+})
+
+const isDownloadingPdf = computed(
+  () =>
+    pdfRoute.value?.id != null &&
+    String(props.downloadingPdfRouteId) === String(pdfRoute.value.id),
+)
 
 const cardTitle = computed(() => props.week.title || actionRoute.value?.name || '')
 
@@ -114,6 +143,12 @@ const openDetail = (routeId = actionRoute.value?.id) => {
 const openDayDetail = (day) => {
   if (day.route?.id) {
     openDetail(day.route.id)
+  }
+}
+
+const downloadPdf = () => {
+  if (pdfRoute.value && !isDownloadingPdf.value) {
+    emit('download-pdf', pdfRoute.value)
   }
 }
 </script>
@@ -202,6 +237,19 @@ const openDayDetail = (day) => {
           :title="t('deliveryRoutes.openMaps')"
           :disabled="!actionRoute?.mapsUrl"
           @click="openMaps"
+        />
+        <BaseButton
+          v-if="pdfRoute"
+          :icon="isDownloadingPdf ? mdiLoading : mdiFilePdfBox"
+          color="info"
+          small
+          :title="
+            isDownloadingPdf
+              ? t('deliveryRoutes.downloadingPdf')
+              : t('deliveryRoutes.downloadPdf')
+          "
+          :disabled="isDownloadingPdf"
+          @click="downloadPdf"
         />
         <BaseButton
           :icon="mdiPencil"

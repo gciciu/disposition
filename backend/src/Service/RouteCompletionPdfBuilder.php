@@ -118,6 +118,8 @@ class RouteCompletionPdfBuilder
         $completedAt = $order->getCompletedAt();
         $delivered = DeliveryOrderStatus::Delivered === $order->getStatus();
 
+        $products = $order->getProducts();
+
         return new RouteCompletionPdfStop(
             position: $order->getPosition(),
             clientName: $order->getClientName(),
@@ -125,7 +127,7 @@ class RouteCompletionPdfBuilder
             address: AddressFormatter::withoutCountry(
                 $order->getFormattedAddress() ?? $order->getAddress(),
             ) ?? $order->getAddress(),
-            products: $order->getProducts(),
+            products: $products,
             weightKg: $extra['weightKg'] ?? $order->getWeightKg(),
             date: $completedAt?->format('d.m.Y'),
             time: $completedAt?->format('H:i'),
@@ -133,6 +135,7 @@ class RouteCompletionPdfBuilder
             signatureImageDataUri: $this->signatureDataUri($order),
             customerRemark: $extra['customerRemark'] ?? $order->getCommentsText(),
             driverRemark: $extra['driverRemark'] ?? null,
+            productBackgroundColors: $this->productBackgroundColorsFor($order, $products),
         );
     }
 
@@ -167,9 +170,70 @@ class RouteCompletionPdfBuilder
             return null;
         }
 
-        $mime = $order->getProofMime() ?: 'image/png';
+        $binary = $this->makeSignatureBackgroundTransparent($binary);
 
-        return 'data:'.$mime.';base64,'.base64_encode($binary);
+        return 'data:image/png;base64,'.base64_encode($binary);
+    }
+
+    /**
+     * Remove opaque white canvas fill so the signature does not appear framed in the PDF cell.
+     */
+    private function makeSignatureBackgroundTransparent(string $pngBinary): string
+    {
+        if (!\function_exists('imagecreatefromstring')) {
+            return $pngBinary;
+        }
+
+        $image = @imagecreatefromstring($pngBinary);
+        if (false === $image) {
+            return $pngBinary;
+        }
+
+        if (!imageistruecolor($image)) {
+            imagepalettetotruecolor($image);
+        }
+        imagealphablending($image, false);
+        imagesavealpha($image, true);
+
+        $transparent = imagecolorallocatealpha($image, 0, 0, 0, 127);
+        $width = imagesx($image);
+        $height = imagesy($image);
+
+        for ($y = 0; $y < $height; ++$y) {
+            for ($x = 0; $x < $width; ++$x) {
+                $rgba = imagecolorat($image, $x, $y);
+                $r = ($rgba >> 16) & 0xFF;
+                $g = ($rgba >> 8) & 0xFF;
+                $b = $rgba & 0xFF;
+                // Near-white pad background from the signature canvas.
+                if ($r > 245 && $g > 245 && $b > 245) {
+                    imagesetpixel($image, $x, $y, $transparent);
+                }
+            }
+        }
+
+        ob_start();
+        imagepng($image, null, 6);
+        $out = ob_get_clean();
+        imagedestroy($image);
+
+        return false === $out || '' === $out ? $pngBinary : $out;
+    }
+
+    /**
+     * @param list<string> $products
+     *
+     * @return list<string|null>
+     */
+    private function productBackgroundColorsFor(DeliveryOrder $order, array $products): array
+    {
+        $colors = $order->getProductBackgroundColors() ?? [];
+        $aligned = [];
+        foreach (array_keys($products) as $index) {
+            $aligned[] = $colors[$index] ?? null;
+        }
+
+        return $aligned;
     }
 
     private function warehouseAddress(DeliveryRoute $route): ?string

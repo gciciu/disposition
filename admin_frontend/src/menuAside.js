@@ -1,6 +1,7 @@
 import {
   // mdiAccountMultiple,
   // mdiClipboardListOutline,
+  mdiCogOutline,
   mdiEmailFastOutline,
   mdiTruckDelivery,
   mdiLogout,
@@ -44,6 +45,11 @@ export const menuAsideMain = [
     to: '/email',
     labelKey: 'menu.emailTest',
     icon: mdiEmailFastOutline,
+  },
+  {
+    to: '/settings',
+    labelKey: 'menu.settings',
+    icon: mdiCogOutline,
   },
   // {
   //   to: '/forms',

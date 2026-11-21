@@ -529,6 +529,14 @@ const accessoryProductsOf = (order) => {
     .filter(({ index }) => accessories.has(index))
 }
 
+const productBackgroundStyle = (order, index) => {
+  const color = order?.productBackgroundColors?.[index]
+  if (!color || typeof color !== 'string') {
+    return undefined
+  }
+  return { backgroundColor: color }
+}
+
 const isProductDelivered = (order, index) => {
   if (order.status !== 'delivered') {
     return false
@@ -772,7 +780,7 @@ watch(
               />
               <BaseButton
                 v-if="canDownloadCompletionPdf"
-                color="success"
+                color="info"
                 :icon="downloadingPdf ? mdiLoading : mdiFilePdfBox"
                 :label="
                   downloadingPdf
@@ -976,6 +984,8 @@ watch(
                     <div
                       v-for="{ product, index } in regularProductsOf(order)"
                       :key="`p-${order.id}-${index}`"
+                      class="rounded px-1"
+                      :style="productBackgroundStyle(order, index)"
                     >
                       {{ product }}
                     </div>
@@ -990,7 +1000,8 @@ watch(
                     <div
                       v-for="{ product, index } in accessoryProductsOf(order)"
                       :key="`a-${order.id}-${index}`"
-                      class="text-gray-600 dark:text-slate-300"
+                      class="rounded px-1 text-gray-600 dark:text-slate-300"
+                      :style="productBackgroundStyle(order, index)"
                     >
                       {{ product }}
                     </div>

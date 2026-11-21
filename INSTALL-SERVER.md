@@ -16,15 +16,17 @@ This guide covers **only the project**: clone, database, env, build, panel sites
 
 Recommended domains (replace with yours):
 
-- `delivery.example.com` — admin + API (`/api`) + Mercure (`/.well-known/mercure`)
-- `driver.example.com` — driver UI + same API (same-origin)
+- `delivery.example.com` — admin SPA + API (`/api`) + Mercure (`/.well-known/mercure`)
+- `driver.example.com` — driver SPA + same API (same-origin)
+
+Both sites use the **same** document root `backend/public`. Symfony picks the SPA from the `Host` header (`ADMIN_HOST` / `DRIVER_HOST`).
 
 ```
-Client → nginx (delivery / driver)
-           ├─ /                        → PHP-FPM → backend/public (admin SPA from admin_frontend/dist)
+Client → nginx (delivery / driver) → document root backend/public
+           ├─ /                        → PHP-FPM → AdminSpaController or DriverSpaController
+           ├─ /spa/*, /driver-spa/*     → static files copied by Vite into public/
            ├─ /api                     → PHP-FPM → backend/public/index.php
            └─ /.well-known/mercure     → proxy → 127.0.0.1:3000
-Driver site document root stays driver_frontend/dist (or a second PHP site).
 ```
 
 One repository clone for everything:
@@ -88,6 +90,10 @@ JWT_PASSPHRASE=<long_random_string>
 
 CORS_ALLOW_ORIGIN='^https?://(localhost|127\.0\.0\.1|tauri\.localhost|delivery\.example\.com|driver\.example\.com)(:[0-9]+)?$'
 
+# Hostnames for SPA routing (must match the two site domains exactly)
+ADMIN_HOST=delivery.example.com
+DRIVER_HOST=driver.example.com
+
 GOOGLE_MAPS_API_KEY=<Google_Cloud_key>
 
 MAILER_DSN=smtp://user:pass@smtp.example.com:587
@@ -142,7 +148,7 @@ Fixture seed users (only if you loaded fixtures):
 
 `VITE_API_URL` stays empty in production — API goes same-origin via `/api`.
 
-Admin `npm run build` is required: Symfony serves `admin_frontend/dist/index.html` as `/`, and copies hashed JS/CSS into `backend/public/spa/` so nginx can serve them.
+Both builds are required: Symfony serves `*/dist/index.html` by host, and Vite copies hashed assets into `backend/public/spa/` (admin) and `backend/public/driver-spa/` (driver) for nginx.
 
 ```bash
 cd /var/www/delivery/admin_frontend
@@ -185,7 +191,7 @@ curl -s https://delivery.example.com/api/driver/app-version
 curl -sI https://delivery.example.com/download
 ```
 
-On the **driver** vhost (static `driver_frontend/dist`), `/download` is not served by PHP — use `/api/driver/download` there, or proxy `/download` to the backend like `/api`.
+With both vhosts on `backend/public`, `/download` works on either host. `/api/driver/download` remains available as well.
 
 Sign every release with the **same** keystore, or Android will refuse the in-place update.
 
@@ -249,11 +255,9 @@ docker compose -f /var/www/delivery/backend/compose.prod.yaml down 2>/dev/null |
 
 ## 6. nginx snippets (both sites)
 
-Use in the panel’s custom nginx field. Replace paths and the PHP-FPM socket (from site PHP settings).
+Use the **same** snippet on both sites. Document root for both: `/var/www/delivery/backend/public`.
 
-### Admin — document root `/var/www/delivery/backend/public`
-
-Symfony serves the admin SPA from `admin_frontend/dist` on `/`. Allow that path in `open_basedir` if the panel restricts it.
+Symfony chooses admin vs driver SPA from `Host` (`ADMIN_HOST` / `DRIVER_HOST`). Allow `admin_frontend` and `driver_frontend` in `open_basedir` if the panel restricts it.
 
 ```nginx
 client_max_body_size 50m;
@@ -289,11 +293,7 @@ location ~ /\.(?!well-known) {
 }
 ```
 
-If the panel already routes all PHP through `index.php`, only the Mercure `location` is needed.
-
-### Driver — document root `/var/www/delivery/driver_frontend/dist`
-
-Keep `/api` proxied to the same `backend/public/index.php` (driver UI is still a static SPA).
+If the panel already routes all PHP through `index.php`, only the Mercure `location` is needed (Mercure can stay on the admin site only if you prefer).
 
 Do **not** wrap in `server { }` — the panel already generates it.
 
@@ -303,29 +303,28 @@ Do **not** wrap in `server { }` — the panel already generates it.
 
 1. Create two websites: `delivery.example.com`, `driver.example.com`.
 2. PHP-FPM 8.4+, SSL (Let's Encrypt).
-3. Document roots:
-   - admin → `/var/www/delivery/backend/public`
-   - driver → `/var/www/delivery/driver_frontend/dist`
+3. Document roots for **both** → `/var/www/delivery/backend/public`
 
 If the panel forces `clientX/webY/web`:
 
 ```bash
 ln -sfn /var/www/delivery/backend/public /var/www/clients/client1/web1/web
-# driver still points at driver_frontend/dist
+ln -sfn /var/www/delivery/backend/public /var/www/clients/client1/web2/web
 ```
 
-Owner must be the site user (`webX`).
+Owner must be the site user (`webX`). Prefer one site user owning the clone when both domains are on the same panel account.
 
 4. **Options → nginx Directives**: paste section 6 (`location` + `client_max_body_size` only). Use the site’s FPM socket for `fastcgi_pass`.
-5. If `open_basedir` is on, allow `/var/www/delivery/backend`, `/var/www/delivery/admin_frontend` and `/tmp`.
-6. `nginx -t && systemctl reload nginx`
+5. If `open_basedir` is on, allow `/var/www/delivery/backend`, `/var/www/delivery/admin_frontend`, `/var/www/delivery/driver_frontend` and `/tmp`.
+6. Set `ADMIN_HOST` / `DRIVER_HOST` in `backend/.env.local` to the exact site hostnames.
+7. `nginx -t && systemctl reload nginx`
 
 ---
 
 ## 8. CloudPanel
 
 1. Create two **PHP** sites (8.4+): `delivery.example.com`, `driver.example.com`, enable SSL.
-2. Admin document root = `backend/public` (Symfony serves `admin_frontend/dist`). Driver stays a static SPA:
+2. Point **both** document roots at `backend/public` (Symfony serves the matching SPA by host):
 
 ```bash
 # example — adjust user/paths to your sites
@@ -333,20 +332,21 @@ rm -rf /home/delivery/htdocs/delivery.example.com
 ln -sfn /var/www/delivery/backend/public /home/delivery/htdocs/delivery.example.com
 
 rm -rf /home/driver/htdocs/driver.example.com
-ln -sfn /var/www/delivery/driver_frontend/dist /home/driver/htdocs/driver.example.com
+ln -sfn /var/www/delivery/backend/public /home/driver/htdocs/driver.example.com
 ```
 
 One site-user owning both domains + one clone is simpler when possible.
 
-3. **Vhost → Custom Nginx Config**: paste section 6. Socket:
+3. **Vhost → Custom Nginx Config**: paste section 6 on both sites. Socket:
 
 ```bash
 grep fastcgi_pass /etc/nginx/sites-enabled/*example.com*
 # or: ls /home/clp/php*/var/run/*.sock
 ```
 
-4. If `open_basedir` is on, include both `backend` and `admin_frontend` (PHP must read `admin_frontend/dist`).
-5. Permissions:
+4. If `open_basedir` is on, include `backend`, `admin_frontend`, and `driver_frontend` (PHP must read both `dist/` trees).
+5. Set `ADMIN_HOST` / `DRIVER_HOST` in `backend/.env.local` to the exact site hostnames.
+6. Permissions:
 
 ```bash
 chown -R APP_USER:APP_USER /var/www/delivery
@@ -421,7 +421,8 @@ Optional host-specific automation draft: `scripts/deploy-test-server.sh` (adapt 
 |---------|--------|
 | 502 on `/api` | FPM socket, `SCRIPT_FILENAME`, `open_basedir`, `backend` permissions |
 | 404 on `/api` | custom `location /api` missing / overwritten |
-| SPA blank / welcome page | `admin_frontend` not built, `open_basedir` blocks `../admin_frontend/dist`, document root not `backend/public` |
+| SPA blank / welcome page | frontend not built, `open_basedir` blocks `../admin_frontend/dist` or `../driver_frontend/dist`, wrong document root, or `ADMIN_HOST`/`DRIVER_HOST` mismatch |
+| Wrong SPA on a domain | `ADMIN_HOST` / `DRIVER_HOST` must equal the exact Host (no `www.` unless the cert/site uses it) |
 | Mercure fails | `/.well-known/mercure` location, `delivery-mercure` on `:3000`, JWT secret match |
 | CORS | `CORS_ALLOW_ORIGIN` domains |
 | JWT 500 / login then **Your session has expired** + cannot load routes | `config/jwt/*.pem` missing or out of sync with `JWT_PASSPHRASE` (keys are not in git — generate on every machine). Fix: `mkdir -p config/jwt && php bin/console lexik:jwt:generate-keypair --overwrite --no-interaction && php bin/console lexik:jwt:check-config` |

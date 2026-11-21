@@ -82,6 +82,11 @@
             margin: 0 0 2px;
         }
 
+        .products .has-bg {
+            display: inline;
+            padding: 1px 3px;
+        }
+
         .proof-block {
             margin-top: 8px;
             text-align: left;
@@ -90,6 +95,11 @@
         .proof-block img {
             max-width: 100%;
             max-height: 320px;
+            border: none;
+            background: transparent;
+        }
+
+        .proof-block--photo img {
             border: 1px solid #ccc;
         }
 
@@ -163,7 +173,14 @@
     {% if doc.products %}
         <ul class="products">
             {% for product in doc.products %}
-                <li>{{ product }}</li>
+                {% set bg = doc.productBackgroundColors[loop.index0] ?? null %}
+                <li>
+                    {% if bg %}
+                        <span class="has-bg" style="background-color: {{ bg }};">{{ product }}</span>
+                    {% else %}
+                        {{ product }}
+                    {% endif %}
+                </li>
             {% endfor %}
         </ul>
     {% else %}
@@ -186,7 +203,7 @@
 
 <section class="section">
     <h2 class="section-title">{{ doc.proofSectionTitle }}</h2>
-    <div class="proof-block">
+    <div class="proof-block{{ doc.proofIsSignature ? '' : ' proof-block--photo' }}">
         {% if doc.proofImageDataUri %}
             <img src="{{ doc.proofImageDataUri }}" alt="{{ doc.proofSectionTitle }}">
         {% else %}

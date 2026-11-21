@@ -70,6 +70,8 @@ class DeliveryConfirmationPdfBuilder
             additionalInfo: 'Phone notice 1 day in advance (sample data)',
             proofImageDataUri: null,
             proofSectionTitle: 'Lieferfoto',
+            proofIsSignature: false,
+            productBackgroundColors: [],
         );
     }
 
@@ -115,8 +117,9 @@ class DeliveryConfirmationPdfBuilder
         $deliveryMethod = $overrides['deliveryMethod']
             ?? $this->defaultDeliveryMethod($order->getDeliveryMethod(), $proofType);
 
-        $products = $this->deliveredProducts($order);
+        $delivered = $this->deliveredProductsWithColors($order);
         $additionalInfo = $overrides['additionalInfo'] ?? $this->defaultAdditionalInfo($order);
+        $isSignature = DeliveryProofType::Signature === $proofType;
 
         return new DeliveryConfirmationPdfDocument(
             company: $this->buildCompany($overrides['company'] ?? []),
@@ -136,12 +139,14 @@ class DeliveryConfirmationPdfBuilder
             driverName: $route?->getCourier()?->getUser()?->getName() ?? '',
             deliveryAtLabel: $createdLabel,
             deliveryMethod: $deliveryMethod,
-            products: $products,
+            products: $delivered['products'],
             weightKg: $overrides['weightKg'] ?? null,
             additionalInfo: $additionalInfo,
             proofImageDataUri: $this->proofDataUri($order),
             proofSectionTitle: $overrides['proofSectionTitle']
                 ?? $this->defaultProofSectionTitle($proofType),
+            proofIsSignature: $isSignature,
+            productBackgroundColors: $delivered['productBackgroundColors'],
         );
     }
 
@@ -162,25 +167,40 @@ class DeliveryConfirmationPdfBuilder
     }
 
     /**
-     * @return list<string>
+     * @return array{products: list<string>, productBackgroundColors: list<string|null>}
      */
-    private function deliveredProducts(DeliveryOrder $order): array
+    private function deliveredProductsWithColors(DeliveryOrder $order): array
     {
         $all = $order->getProducts();
+        $colors = $order->getProductBackgroundColors() ?? [];
         $indexes = $order->getDeliveredProductIndexes();
 
         if (null === $indexes) {
-            return $all;
+            $alignedColors = [];
+            foreach (array_keys($all) as $index) {
+                $alignedColors[] = $colors[$index] ?? null;
+            }
+
+            return [
+                'products' => $all,
+                'productBackgroundColors' => $alignedColors,
+            ];
         }
 
         $selected = [];
+        $selectedColors = [];
         foreach ($indexes as $index) {
-            if (isset($all[$index])) {
-                $selected[] = $all[$index];
+            if (!isset($all[$index])) {
+                continue;
             }
+            $selected[] = $all[$index];
+            $selectedColors[] = $colors[$index] ?? null;
         }
 
-        return $selected;
+        return [
+            'products' => $selected,
+            'productBackgroundColors' => $selectedColors,
+        ];
     }
 
     private function proofDataUri(DeliveryOrder $order): ?string
@@ -195,9 +215,59 @@ class DeliveryConfirmationPdfBuilder
             return null;
         }
 
+        if (DeliveryProofType::Signature === $order->getProofType()) {
+            $binary = $this->makeSignatureBackgroundTransparent($binary);
+
+            return 'data:image/png;base64,'.base64_encode($binary);
+        }
+
         $mime = $order->getProofMime() ?: 'image/jpeg';
 
         return 'data:'.$mime.';base64,'.base64_encode($binary);
+    }
+
+    /**
+     * Remove opaque white canvas fill so the signature does not appear framed.
+     */
+    private function makeSignatureBackgroundTransparent(string $pngBinary): string
+    {
+        if (!\function_exists('imagecreatefromstring')) {
+            return $pngBinary;
+        }
+
+        $image = @imagecreatefromstring($pngBinary);
+        if (false === $image) {
+            return $pngBinary;
+        }
+
+        if (!imageistruecolor($image)) {
+            imagepalettetotruecolor($image);
+        }
+        imagealphablending($image, false);
+        imagesavealpha($image, true);
+
+        $transparent = imagecolorallocatealpha($image, 0, 0, 0, 127);
+        $width = imagesx($image);
+        $height = imagesy($image);
+
+        for ($y = 0; $y < $height; ++$y) {
+            for ($x = 0; $x < $width; ++$x) {
+                $rgba = imagecolorat($image, $x, $y);
+                $r = ($rgba >> 16) & 0xFF;
+                $g = ($rgba >> 8) & 0xFF;
+                $b = $rgba & 0xFF;
+                if ($r > 245 && $g > 245 && $b > 245) {
+                    imagesetpixel($image, $x, $y, $transparent);
+                }
+            }
+        }
+
+        ob_start();
+        imagepng($image, null, 6);
+        $out = ob_get_clean();
+        imagedestroy($image);
+
+        return false === $out || '' === $out ? $pngBinary : $out;
     }
 
     private function defaultDeliveryMethod(?DeliveryMethod $method, ?DeliveryProofType $proofType): string

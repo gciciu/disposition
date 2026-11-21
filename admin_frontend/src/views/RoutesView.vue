@@ -10,6 +10,7 @@ import {
   mdiTrashCan,
   mdiMap,
   mdiLoading,
+  mdiFilePdfBox,
 } from '@mdi/js'
 import SectionMain from '@/components/SectionMain.vue'
 import CardBox from '@/components/CardBox.vue'
@@ -33,6 +34,7 @@ const weeks = ref([])
 const unscheduled = ref([])
 const loading = ref(false)
 const deleting = ref(false)
+const downloadingPdfRouteId = ref(null)
 /** @type {import('vue').Ref<null | { type: 'route', route: object } | { type: 'week', week: object, routes: object[] }>} */
 const deleteTarget = ref(null)
 const assignOpen = ref(false)
@@ -109,6 +111,35 @@ const openDetail = (id) => {
 const openMaps = (route) => {
   if (route?.mapsUrl) {
     window.open(route.mapsUrl, '_blank', 'noopener,noreferrer')
+  }
+}
+
+const canDownloadCompletionPdf = (route) =>
+  Boolean(route?.completedAt) || Boolean(route?.hasCompletionPdf)
+
+const downloadCompletionPdf = async (route) => {
+  if (!route?.id || downloadingPdfRouteId.value != null) {
+    return
+  }
+  if (!canDownloadCompletionPdf(route)) {
+    return
+  }
+
+  downloadingPdfRouteId.value = route.id
+  try {
+    const { data } = await api.get(`/api/admin/routes/${route.id}/completion-pdf`, {
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `route_full_${route.id}.pdf`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.downloadPdfFailed'))
+  } finally {
+    downloadingPdfRouteId.value = null
   }
 }
 
@@ -243,10 +274,12 @@ onMounted(() => {
           v-for="week in weeks"
           :key="`${week.courier?.id}-${week.weekStart}`"
           :week="week"
+          :downloading-pdf-route-id="downloadingPdfRouteId"
           @edit="openEdit"
           @delete-week="askDeleteWeek"
           @open-maps="openMaps"
           @open-detail="openDetail"
+          @download-pdf="downloadCompletionPdf"
         />
 
         <div v-if="unscheduled.length" class="mt-6 mb-2">
@@ -285,6 +318,21 @@ onMounted(() => {
                   :title="t('deliveryRoutes.openMaps')"
                   :disabled="!route.mapsUrl"
                   @click="openMaps(route)"
+                />
+                <BaseButton
+                  v-if="canDownloadCompletionPdf(route)"
+                  :icon="
+                    downloadingPdfRouteId === route.id ? mdiLoading : mdiFilePdfBox
+                  "
+                  color="info"
+                  small
+                  :title="
+                    downloadingPdfRouteId === route.id
+                      ? t('deliveryRoutes.downloadingPdf')
+                      : t('deliveryRoutes.downloadPdf')
+                  "
+                  :disabled="downloadingPdfRouteId != null"
+                  @click="downloadCompletionPdf(route)"
                 />
                 <BaseButton
                   :icon="mdiPencil"

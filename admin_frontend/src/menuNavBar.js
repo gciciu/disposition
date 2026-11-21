@@ -18,6 +18,7 @@ export default [
       {
         icon: mdiCogOutline,
         labelKey: 'menu.settings',
+        to: '/settings',
       },
       {
         icon: mdiEmail,

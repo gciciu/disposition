@@ -97,6 +97,16 @@ const routes = [
   },
   {
     meta: {
+      titleKey: 'routes.settings',
+      requiresAuth: true,
+      requiresAdmin: true,
+    },
+    path: '/settings',
+    name: 'settings',
+    component: () => import('@/views/SettingsView.vue'),
+  },
+  {
+    meta: {
       titleKey: 'routes.warehouses',
       requiresAuth: true,
       requiresAdmin: true,
