@@ -374,6 +374,20 @@ export type DeliveryMethod =
   | "partial"
   | "not_delivered";
 
+export type OrderCommentColor =
+  | "amber"
+  | "red"
+  | "green"
+  | "blue"
+  | "orange"
+  | "gray";
+
+export type OrderComment = {
+  id: string;
+  text: string;
+  color: OrderCommentColor | string;
+};
+
 export type RouteOrder = {
   id: number;
   position: number;
@@ -395,6 +409,7 @@ export type RouteOrder = {
   arrivalTime?: string | null;
   status: OrderStatus;
   isExchange?: boolean;
+  comments?: OrderComment[];
   completedAt: string | null;
   proofType: ProofType | null;
   deliveryMethod?: DeliveryMethod | null;
@@ -403,6 +418,21 @@ export type RouteOrder = {
   hasProof: boolean;
   courierComment?: string | null;
 };
+
+export type RealtimeTicket = {
+  token: string;
+  hubUrl: string;
+  expiresAt: number;
+  topics: string[];
+};
+
+export function fetchDriverRealtimeTicketRequest(routeId?: number | null) {
+  const query =
+    routeId != null && Number.isFinite(routeId) && routeId > 0
+      ? `?routeId=${encodeURIComponent(String(routeId))}`
+      : "";
+  return request<RealtimeTicket>(`/api/driver/realtime/ticket${query}`);
+}
 
 export type RouteDetail = RouteListItem & {
   orders: RouteOrder[];

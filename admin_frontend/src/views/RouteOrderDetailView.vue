@@ -408,7 +408,11 @@ const applyRealtimePayload = (event, data) => {
     return
   }
 
-  if (event === 'order.completed' || event === 'order.refused') {
+  if (
+    event === 'order.completed' ||
+    event === 'order.refused' ||
+    event === 'order.updated'
+  ) {
     const next = { ...data.route }
     if (data.order?.id != null && Array.isArray(next.orders)) {
       const orderIndex = next.orders.findIndex((item) => sameId(item.id, data.order.id))

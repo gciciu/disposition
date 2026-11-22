@@ -233,7 +233,8 @@ const { start: startRealtime } = useRealtime({
       event === 'route.continued' ||
       event === 'route.delayed' ||
       event === 'order.completed' ||
-      event === 'order.refused'
+      event === 'order.refused' ||
+      event === 'order.updated'
     ) {
       patchRouteFromEvent(data?.route)
     }

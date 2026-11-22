@@ -87,6 +87,7 @@
     "products": "Products",
     "accessories": "Accessories",
     "noProducts": "No products for this stop",
+    "officeComments": "Office comments",
     "courierComment": "Courier comment",
     "courierCommentPlaceholder": "Add a comment for this stop…",
     "courierCommentEmpty": "No courier comment",

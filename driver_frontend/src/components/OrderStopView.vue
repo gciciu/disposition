@@ -319,6 +319,20 @@ const openStopMaps = async (event: Event) => {
       </ul>
     </section>
 
+    <section v-if="order.comments?.length" class="product-panel">
+      <h2 class="product-panel__title">{{ t("delivery.officeComments") }}</h2>
+      <ul class="office-comment-list">
+        <li
+          v-for="comment in order.comments"
+          :key="comment.id"
+          class="office-comment"
+          :class="`office-comment--${comment.color || 'amber'}`"
+        >
+          {{ comment.text }}
+        </li>
+      </ul>
+    </section>
+
     <section class="product-panel">
       <h2 class="product-panel__title">{{ t("delivery.courierComment") }}</h2>
       <textarea

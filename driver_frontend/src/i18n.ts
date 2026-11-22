@@ -5,7 +5,7 @@ import de from "./locales/de.json";
 
 export const SUPPORTED_LOCALES = ["en", "de"] as const;
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
-export const DEFAULT_LOCALE: AppLocale = "en";
+export const DEFAULT_LOCALE: AppLocale = "de";
 export const LOCALE_STORAGE_KEY = "driver_locale";
 
 export function isAppLocale(value: string | null): value is AppLocale {

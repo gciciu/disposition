@@ -12,6 +12,7 @@ use App\Repository\WarehouseRepository;
 use App\Service\DeliveryConfirmationPdfService;
 use App\Service\DeliveryProofService;
 use App\Service\DeliveryRouteMetricsService;
+use App\Service\DriverRealtimePublisher;
 use App\Service\GoogleMapsService;
 use App\Service\RouteCodeNameBuilder;
 use App\Service\RouteCompletionPdfService;
@@ -46,6 +47,7 @@ class DeliveryRouteController extends AbstractController
         private readonly DeliveryRouteMetricsService $metrics,
         private readonly DeliveryProofService $proofService,
         private readonly RouteWeekListBuilder $weekListBuilder,
+        private readonly DriverRealtimePublisher $realtime,
         private readonly EntityManagerInterface $em,
     ) {
     }
@@ -493,12 +495,15 @@ class DeliveryRouteController extends AbstractController
         }
 
         $addressChanged = false;
+        /** @var list<DeliveryOrder> $ordersWithCommentUpdates */
+        $ordersWithCommentUpdates = [];
         if (\array_key_exists('orders', $payload)) {
             $ordersResult = $this->applyOrderUpdates($route, $payload['orders']);
             if ($ordersResult instanceof JsonResponse) {
                 return $ordersResult;
             }
             $addressChanged = (bool) ($ordersResult['addressChanged'] ?? false);
+            $ordersWithCommentUpdates = $ordersResult['commentUpdatedOrders'] ?? [];
         }
 
         if (($originChanged || $addressChanged) && $this->googleMaps->isConfigured()) {
@@ -507,13 +512,17 @@ class DeliveryRouteController extends AbstractController
 
         $this->em->flush();
 
+        foreach ($ordersWithCommentUpdates as $updatedOrder) {
+            $this->realtime->publishOrderUpdated($updatedOrder);
+        }
+
         return $this->json(['route' => $route->toArray()]);
     }
 
     /**
      * @param mixed $ordersPayload
      *
-     * @return array{addressChanged: bool}|JsonResponse
+     * @return array{addressChanged: bool, commentUpdatedOrders: list<DeliveryOrder>}|JsonResponse
      */
     private function applyOrderUpdates(DeliveryRoute $route, mixed $ordersPayload): array|JsonResponse
     {
@@ -529,6 +538,8 @@ class DeliveryRouteController extends AbstractController
         }
 
         $addressChanged = false;
+        /** @var list<DeliveryOrder> $commentUpdatedOrders */
+        $commentUpdatedOrders = [];
 
         foreach ($ordersPayload as $index => $item) {
             if (!\is_array($item)) {
@@ -595,7 +606,11 @@ class DeliveryRouteController extends AbstractController
                 if ($commentsResult instanceof JsonResponse) {
                     return $commentsResult;
                 }
+                $previousComments = $order->getComments();
                 $order->setComments($commentsResult);
+                if ($previousComments !== $order->getComments()) {
+                    $commentUpdatedOrders[] = $order;
+                }
             }
 
             if (\array_key_exists('address', $item) || \array_key_exists('placeId', $item)) {
@@ -607,7 +622,10 @@ class DeliveryRouteController extends AbstractController
             }
         }
 
-        return ['addressChanged' => $addressChanged];
+        return [
+            'addressChanged' => $addressChanged,
+            'commentUpdatedOrders' => $commentUpdatedOrders,
+        ];
     }
 
     /**

@@ -19,13 +19,12 @@ class DriverRealtimePublisher
 
     public function publishRouteStarted(DeliveryRoute $route): void
     {
-        $routeId = $route->getId();
-        if (null === $routeId) {
+        if (null === $route->getId()) {
             return;
         }
 
         $this->publish(
-            $this->topicsForRoute($routeId),
+            $this->topicsForRoute($route),
             'route.started',
             ['route' => $route->toArray()],
         );
@@ -33,13 +32,12 @@ class DriverRealtimePublisher
 
     public function publishRouteCompleted(DeliveryRoute $route): void
     {
-        $routeId = $route->getId();
-        if (null === $routeId) {
+        if (null === $route->getId()) {
             return;
         }
 
         $this->publish(
-            $this->topicsForRoute($routeId),
+            $this->topicsForRoute($route),
             'route.completed',
             ['route' => $route->toArray()],
         );
@@ -47,13 +45,12 @@ class DriverRealtimePublisher
 
     public function publishRouteContinued(DeliveryRoute $route): void
     {
-        $routeId = $route->getId();
-        if (null === $routeId) {
+        if (null === $route->getId()) {
             return;
         }
 
         $this->publish(
-            $this->topicsForRoute($routeId),
+            $this->topicsForRoute($route),
             'route.continued',
             ['route' => $route->toArray()],
         );
@@ -61,13 +58,12 @@ class DriverRealtimePublisher
 
     public function publishRouteDelayed(DeliveryRoute $route): void
     {
-        $routeId = $route->getId();
-        if (null === $routeId) {
+        if (null === $route->getId()) {
             return;
         }
 
         $this->publish(
-            $this->topicsForRoute($routeId),
+            $this->topicsForRoute($route),
             'route.delayed',
             ['route' => $route->toArray()],
         );
@@ -83,6 +79,11 @@ class DriverRealtimePublisher
         $this->publishOrderEvent('order.refused', $order);
     }
 
+    public function publishOrderUpdated(DeliveryOrder $order): void
+    {
+        $this->publishOrderEvent('order.updated', $order);
+    }
+
     private function publishOrderEvent(string $event, DeliveryOrder $order): void
     {
         $route = $order->getRoute();
@@ -93,7 +94,7 @@ class DriverRealtimePublisher
         $arrivalTimes = $route->computeArrivalTimes();
 
         $this->publish(
-            $this->topicsForRoute($route->getId()),
+            $this->topicsForRoute($route),
             $event,
             [
                 'order' => $order->toArray($arrivalTimes[$order->getId()] ?? null),
@@ -105,12 +106,25 @@ class DriverRealtimePublisher
     /**
      * @return list<string>
      */
-    private function topicsForRoute(int $routeId): array
+    private function topicsForRoute(DeliveryRoute $route): array
     {
-        return [
+        $routeId = $route->getId();
+        if (null === $routeId) {
+            return [];
+        }
+
+        $topics = [
             'admin.routes',
             sprintf('admin.routes.%d', $routeId),
+            sprintf('driver.routes.%d', $routeId),
         ];
+
+        $courierId = $route->getCourier()?->getId();
+        if (null !== $courierId) {
+            $topics[] = sprintf('driver.courier.%d', $courierId);
+        }
+
+        return $topics;
     }
 
     /**

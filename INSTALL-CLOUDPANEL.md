@@ -316,64 +316,19 @@ Builds:
 
 ## 7. Start Mercure (systemd)
 
-Mercure runs on **localhost:3000** only. Browsers reach it through nginx on the admin domain.
+Full Mercure setup (binary, `mercure/.env`, systemd, nginx proxy, checks, troubleshooting): **[INSTALL-MERCURE.md](INSTALL-MERCURE.md)**.
+
+Short path:
 
 ```bash
 cd /var/www/delivery
 bash scripts/download-mercure.sh
-```
-
-Create `mercure/.env` — JWT secret must match `MERCURE_JWT_SECRET` in `backend/.env.local` (**no quotes** around the secret here):
-
-```bash
-cat > /var/www/delivery/mercure/.env <<'EOF'
-SERVER_NAME=http://127.0.0.1:3000
-MERCURE_PUBLISHER_JWT_KEY=YOUR_SECRET
-MERCURE_SUBSCRIBER_JWT_KEY=YOUR_SECRET
-MERCURE_PUBLISHER_JWT_ALG=HS256
-MERCURE_SUBSCRIBER_JWT_ALG=HS256
-MERCURE_EXTRA_DIRECTIVES="cors_origins *"
-EOF
-chown APP_USER:APP_USER /var/www/delivery/mercure/.env
-chmod 600 /var/www/delivery/mercure/.env
-```
-
-Install and start the service (replace `APP_USER`):
-
-```bash
-sudo tee /etc/systemd/system/delivery-mercure.service >/dev/null <<'UNIT'
-[Unit]
-Description=Delivery Mercure hub
-After=network.target
-
-[Service]
-Type=simple
-User=APP_USER
-WorkingDirectory=/var/www/delivery/mercure
-EnvironmentFile=/var/www/delivery/mercure/.env
-ExecStart=/var/www/delivery/mercure/mercure run --config Caddyfile
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-sudo systemctl daemon-reload
+# create mercure/.env + delivery-mercure.service — see INSTALL-MERCURE.md
 sudo systemctl enable --now delivery-mercure.service
-systemctl status delivery-mercure.service
 ss -tlnp | grep 3000
 ```
 
-Do **not** open port 3000 publicly.
-
-Useful commands later:
-
-```bash
-sudo systemctl restart delivery-mercure.service
-sudo systemctl status delivery-mercure.service
-journalctl -u delivery-mercure.service -f
-```
+JWT secret in `mercure/.env` must match `MERCURE_JWT_SECRET` in `backend/.env.local` (**no quotes** in the hub env). Do **not** open port 3000 publicly. Nginx `/.well-known/mercure` is in section 8 below (and in INSTALL-MERCURE.md).
 
 ---
 
@@ -532,7 +487,7 @@ Install page: `https://delivery.produkt-konfigurator24.de/download`
 | 502 on `/api` | PHP-FPM socket, `SCRIPT_FILENAME`, `open_basedir`, ownership of `/var/www/delivery` |
 | Blank SPA / CloudPanel default page | Symlink to `backend/public`, frontends built, `open_basedir` includes both `*_frontend` dirs |
 | Wrong app on a domain | `ADMIN_HOST` / `DRIVER_HOST` must equal Host exactly (no extra `www.` unless the site uses it) |
-| Mercure 502/404 | `delivery-mercure` running, nginx Mercure location, secret match between hub and Symfony |
+| Mercure 502/404 | See [INSTALL-MERCURE.md](INSTALL-MERCURE.md) — service, nginx location, JWT secret match |
 | Login OK then “session expired” | JWT keys missing — regenerate `config/jwt/*.pem` and re-check `JWT_PASSPHRASE` |
 | Uploads / cache errors | `chmod -R ug+rwX backend/var` and correct owner |
 | Email not delivered / “null transport” | Real `MAILER_DSN` (not `null://null`), valid `MAIL_FROM`, URL-encoded password; then `cache:clear` / `cache:warmup` |
@@ -549,7 +504,7 @@ Install page: `https://delivery.produkt-konfigurator24.de/download`
 - [ ] SMTP configured (`MAILER_DSN` / `MAIL_FROM`); SPF/DKIM set; admin Email test OK
 - [ ] `composer install`, JWT keys, migrations, super admin
 - [ ] `npm run build` for admin + driver
-- [ ] Mercure binary + `delivery-mercure.service` enabled
+- [ ] Mercure per [INSTALL-MERCURE.md](INSTALL-MERCURE.md) (binary + `delivery-mercure.service`)
 - [ ] Custom nginx (Mercure proxy + PHP fallback) on both sites
 - [ ] `open_basedir` allows backend + both frontends
 - [ ] Smoke curls + browser login on both domains

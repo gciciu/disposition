@@ -25,6 +25,7 @@ import ConfirmDeliverySheet, {
 import OrderStopView from "../components/OrderStopView.vue";
 import RefuseDeliverySheet from "../components/RefuseDeliverySheet.vue";
 import SignaturePadModal from "../components/SignaturePadModal.vue";
+import { useRealtime } from "../composables/useRealtime";
 import { GeolocationError, getCurrentPosition } from "../geolocation";
 import { toProofJpeg } from "../imageProof";
 import { displayApiError } from "../i18n";
@@ -234,7 +235,102 @@ const syncRouteListItem = (route: RouteDetail) => {
   );
 };
 
+type RealtimePayload = {
+  route?: RouteDetail;
+  order?: RouteOrder;
+};
+
+const sameId = (left: unknown, right: unknown) =>
+  left != null && right != null && Number(left) === Number(right);
+
+const reloadOpenRoute = async ({ silent = false } = {}) => {
+  const id = selectedId.value;
+  if (id == null) {
+    return;
+  }
+
+  if (!silent) {
+    loadingDetail.value = true;
+  }
+  error.value = "";
+
+  try {
+    const data = await fetchMyRouteRequest(id);
+    if (selectedId.value !== id) {
+      return;
+    }
+    detail.value = data.route;
+    syncRouteListItem(data.route);
+    if (!silent) {
+      showClosed.value = Boolean(data.route.completedAt);
+    }
+  } catch (e) {
+    if (!silent) {
+      error.value = displayApiError(e, t, "routes.loadDetailFailed");
+      selectedId.value = null;
+      detail.value = null;
+    }
+  } finally {
+    if (!silent) {
+      loadingDetail.value = false;
+    }
+  }
+};
+
+const applyRealtimePayload = (event: string, raw: unknown) => {
+  if (!detail.value || !raw || typeof raw !== "object") {
+    return;
+  }
+  const data = raw as RealtimePayload;
+  if (!data.route) {
+    return;
+  }
+  if (data.route.id != null && !sameId(data.route.id, detail.value.id)) {
+    return;
+  }
+
+  if (
+    event === "route.started" ||
+    event === "route.completed" ||
+    event === "route.continued" ||
+    event === "route.delayed"
+  ) {
+    detail.value = data.route;
+    syncRouteListItem(data.route);
+    return;
+  }
+
+  if (
+    event === "order.completed" ||
+    event === "order.refused" ||
+    event === "order.updated"
+  ) {
+    const next: RouteDetail = { ...data.route };
+    if (data.order?.id != null && Array.isArray(next.orders)) {
+      const orderIndex = next.orders.findIndex((item) => sameId(item.id, data.order?.id));
+      if (orderIndex !== -1) {
+        next.orders = [...next.orders];
+        next.orders[orderIndex] = {
+          ...next.orders[orderIndex],
+          ...data.order,
+        };
+      }
+    }
+    detail.value = next;
+    syncRouteListItem(next);
+  }
+};
+
+const { start: startRealtime, stop: stopRealtime } = useRealtime({
+  routeId: () => selectedId.value,
+  onEvent: applyRealtimePayload,
+  onResync: () => {
+    void reloadOpenRoute({ silent: true });
+  },
+});
+
 const loadRoutes = async () => {
+  stopRealtime();
   loading.value = true;
   error.value = "";
   selectedId.value = null;
@@ -252,6 +348,7 @@ const loadRoutes = async () => {
 };
 
 const openRoute = async (id: number) => {
+  stopRealtime();
   selectedId.value = id;
   selectedOrderId.value = null;
   showClosed.value = false;
@@ -263,6 +360,7 @@ const openRoute = async (id: number) => {
     const data = await fetchMyRouteRequest(id);
     detail.value = data.route;
     showClosed.value = Boolean(data.route.completedAt);
+    startRealtime();
   } catch (e) {
     error.value = displayApiError(e, t, "routes.loadDetailFailed");
     selectedId.value = null;
@@ -272,6 +370,7 @@ const openRoute = async (id: number) => {
 };
 
 const backToList = () => {
+  stopRealtime();
   selectedId.value = null;
   selectedOrderId.value = null;
   showClosed.value = false;
