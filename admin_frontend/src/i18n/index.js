@@ -6,6 +6,16 @@ export const SUPPORTED_LOCALES = ['en', 'de']
 export const DEFAULT_LOCALE = 'de'
 export const LOCALE_STORAGE_KEY = 'locale'
 
+/** BCP 47 tags with region — drives native date/number formats. */
+export const LOCALE_TAGS = {
+  de: 'de-DE',
+  en: 'en-GB',
+}
+
+export function getLocaleTag(locale = getStoredLocale()) {
+  return LOCALE_TAGS[locale] || LOCALE_TAGS[DEFAULT_LOCALE]
+}
+
 export function getStoredLocale() {
   const stored = localStorage.getItem(LOCALE_STORAGE_KEY)
   if (SUPPORTED_LOCALES.includes(stored)) {
@@ -19,7 +29,7 @@ export function setStoredLocale(locale) {
     return
   }
   localStorage.setItem(LOCALE_STORAGE_KEY, locale)
-  document.documentElement.lang = locale
+  document.documentElement.lang = getLocaleTag(locale)
 }
 
 const i18n = createI18n({
@@ -29,7 +39,7 @@ const i18n = createI18n({
   messages: { en, de },
 })
 
-document.documentElement.lang = i18n.global.locale.value
+document.documentElement.lang = getLocaleTag(i18n.global.locale.value)
 
 export function setLocale(locale) {
   if (!SUPPORTED_LOCALES.includes(locale)) {

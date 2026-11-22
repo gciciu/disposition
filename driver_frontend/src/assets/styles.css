@@ -680,6 +680,22 @@ body {
   color: #1e293b;
 }
 
+.office-comment--compact {
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.stop-card__comments {
+  margin: 0.15rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .product-panel {
   display: flex;
   flex-direction: column;

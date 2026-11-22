@@ -87,7 +87,7 @@
     "products": "Artikel",
     "accessories": "Zubehör",
     "noProducts": "Keine Artikel für diesen Stopp",
-    "officeComments": "Kommentare vom Büro",
+    "comments": "Kommentare",
     "courierComment": "Fahrerkommentar",
     "courierCommentPlaceholder": "Kommentar zu diesem Stopp hinzufügen…",
     "courierCommentEmpty": "Kein Fahrerkommentar",

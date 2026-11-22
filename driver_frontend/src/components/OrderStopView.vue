@@ -260,6 +260,41 @@ const openStopMaps = async (event: Event) => {
     </article>
 
     <section class="product-panel">
+      <template v-if="order.comments?.length">
+        <h2 class="product-panel__title">{{ t("delivery.comments") }}</h2>
+        <ul class="office-comment-list">
+          <li
+            v-for="comment in order.comments"
+            :key="comment.id"
+            class="office-comment"
+            :class="`office-comment--${comment.color || 'amber'}`"
+          >
+            {{ comment.text }}
+          </li>
+        </ul>
+      </template>
+      <h2
+        class="product-panel__title"
+        :class="{ 'product-panel__title--accessory': Boolean(order.comments?.length) }"
+      >
+        {{ t("delivery.courierComment") }}
+      </h2>
+      <textarea
+        v-if="!isClosed && !readOnly"
+        v-model="courierComment"
+        class="order-stop__comment"
+        rows="3"
+        maxlength="2000"
+        :disabled="actionsLocked"
+        :placeholder="t('delivery.courierCommentPlaceholder')"
+      />
+      <p v-else-if="courierComment" class="order-stop__comment-text">
+        {{ courierComment }}
+      </p>
+      <p v-else class="product-panel__empty">{{ t("delivery.courierCommentEmpty") }}</p>
+    </section>
+
+    <section class="product-panel">
       <h2 class="product-panel__title">{{ t("delivery.products") }}</h2>
       <p
         v-if="!regularProducts.length && !accessoryProducts.length"
@@ -317,37 +352,6 @@ const openStopMaps = async (event: Event) => {
           </label>
         </li>
       </ul>
-    </section>
-
-    <section v-if="order.comments?.length" class="product-panel">
-      <h2 class="product-panel__title">{{ t("delivery.officeComments") }}</h2>
-      <ul class="office-comment-list">
-        <li
-          v-for="comment in order.comments"
-          :key="comment.id"
-          class="office-comment"
-          :class="`office-comment--${comment.color || 'amber'}`"
-        >
-          {{ comment.text }}
-        </li>
-      </ul>
-    </section>
-
-    <section class="product-panel">
-      <h2 class="product-panel__title">{{ t("delivery.courierComment") }}</h2>
-      <textarea
-        v-if="!isClosed && !readOnly"
-        v-model="courierComment"
-        class="order-stop__comment"
-        rows="3"
-        maxlength="2000"
-        :disabled="actionsLocked"
-        :placeholder="t('delivery.courierCommentPlaceholder')"
-      />
-      <p v-else-if="courierComment" class="order-stop__comment-text">
-        {{ courierComment }}
-      </p>
-      <p v-else class="product-panel__empty">{{ t("delivery.courierCommentEmpty") }}</p>
     </section>
 
     <p v-if="!isClosed && readOnly" class="order-stop__hint">

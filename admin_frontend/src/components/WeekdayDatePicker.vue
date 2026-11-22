@@ -3,7 +3,43 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
+import { getLocaleTag } from '@/i18n'
 import { mdiCalendar, mdiChevronLeft, mdiChevronRight } from '@mdi/js'
+
+const DATE_PLACEHOLDER_LETTERS = {
+  de: { day: 'TT', month: 'MM', year: 'JJJJ' },
+  en: { day: 'DD', month: 'MM', year: 'YYYY' },
+}
+
+const buildDatePlaceholder = (localeTag, language) => {
+  const letters = DATE_PLACEHOLDER_LETTERS[language] || DATE_PLACEHOLDER_LETTERS.en
+  try {
+    return new Intl.DateTimeFormat(localeTag, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    })
+      .formatToParts(new Date(2020, 0, 31))
+      .map((part) => {
+        if (part.type === 'day') {
+          return letters.day
+        }
+        if (part.type === 'month') {
+          return letters.month
+        }
+        if (part.type === 'year') {
+          return letters.year
+        }
+        if (part.type === 'literal') {
+          return part.value
+        }
+        return ''
+      })
+      .join('')
+  } catch {
+    return language === 'de' ? 'TT.MM.JJJJ' : 'DD/MM/YYYY'
+  }
+}
 
 const props = defineProps({
   modelValue: {
@@ -31,6 +67,11 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const { t, locale } = useI18n()
+
+const localeTag = computed(() => getLocaleTag(locale.value))
+const datePlaceholder = computed(() =>
+  buildDatePlaceholder(localeTag.value, locale.value),
+)
 
 const rootRef = ref(null)
 const inputRef = ref(null)
@@ -117,7 +158,7 @@ const reasonMessage = (reason) => {
 }
 
 const monthLabel = computed(() =>
-  viewMonth.value.toLocaleDateString(locale.value, { month: 'long', year: 'numeric' }),
+  viewMonth.value.toLocaleDateString(localeTag.value, { month: 'long', year: 'numeric' }),
 )
 
 const weekdayHeaders = computed(() => [
@@ -345,16 +386,28 @@ onBeforeUnmount(() => {
     <div class="flex items-center gap-3">
       <div class="relative min-w-0 flex-1">
         <input
-          :key="inputResetKey"
+          :key="`${inputResetKey}-${localeTag}`"
           ref="inputRef"
           type="date"
-          class="h-12 w-full max-w-full rounded-sm border border-gray-700 bg-white px-3 py-2 pr-10 focus:ring-3 focus:outline-hidden dark:bg-slate-800 dark:placeholder-gray-400 [&::-webkit-calendar-picker-indicator]:hidden"
+          class="weekday-date-picker__input h-12 w-full max-w-full rounded-sm border border-gray-700 bg-white px-3 py-2 pr-10 focus:ring-3 focus:outline-hidden dark:bg-slate-800 dark:placeholder-gray-400 [&::-webkit-calendar-picker-indicator]:hidden"
+          :class="{ 'weekday-date-picker__input--empty': !draftValue }"
+          :lang="localeTag"
           :value="draftValue"
           :disabled="disabled"
+          :aria-label="datePlaceholder"
+          :title="datePlaceholder"
+          :placeholder="datePlaceholder"
           @input="onNativeInput"
           @change="onNativeChange"
           @keydown.enter.prevent="commitDate(draftValue || null)"
         />
+        <span
+          v-if="!draftValue"
+          class="pointer-events-none absolute inset-y-0 left-0 flex items-center px-3 pr-10 text-sm text-gray-400 dark:text-slate-500"
+          aria-hidden="true"
+        >
+          {{ datePlaceholder }}
+        </span>
         <button
           type="button"
           class="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-gray-500 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:text-slate-100"
@@ -446,3 +499,14 @@ onBeforeUnmount(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* Hide the browser's native empty-date glyphs so the localized placeholder is visible. */
+.weekday-date-picker__input--empty:not(:focus)::-webkit-datetime-edit {
+  color: transparent;
+}
+
+.weekday-date-picker__input--empty:not(:focus)::-webkit-datetime-edit-fields-wrapper {
+  opacity: 0;
+}
+</style>

@@ -1078,6 +1078,16 @@ watch(
                   {{ order.phone }}
                 </div>
                 <div class="stop-card__address">{{ displayAddress(order) }}</div>
+                <ul v-if="order.comments?.length" class="stop-card__comments">
+                  <li
+                    v-for="comment in order.comments"
+                    :key="comment.id"
+                    class="office-comment office-comment--compact"
+                    :class="`office-comment--${comment.color || 'amber'}`"
+                  >
+                    {{ comment.text }}
+                  </li>
+                </ul>
                 <div
                   v-if="order.travelDurationText || order.travelDistanceText"
                   class="stop-card__travel"
@@ -1171,6 +1181,16 @@ watch(
                 {{ order.phone }}
               </div>
               <div class="stop-card__address">{{ displayAddress(order) }}</div>
+              <ul v-if="order.comments?.length" class="stop-card__comments">
+                <li
+                  v-for="comment in order.comments"
+                  :key="comment.id"
+                  class="office-comment office-comment--compact"
+                  :class="`office-comment--${comment.color || 'amber'}`"
+                >
+                  {{ comment.text }}
+                </li>
+              </ul>
               <div
                 v-if="order.travelDurationText || order.travelDistanceText"
                 class="stop-card__travel"
