@@ -382,7 +382,7 @@ location ~ /\.(?!well-known) {
 If CloudPanel already routes PHP correctly and custom PHP location conflicts, keep at least:
 
 - `client_max_body_size 50m;`
-- the `/.well-known/mercure` block (required on the **delivery** site; optional on driver)
+- the `/.well-known/mercure` block (**required on both** delivery and driver sites — driver SPA uses same-origin Mercure to avoid CORS)
 
 Then:
 

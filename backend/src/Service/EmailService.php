@@ -124,20 +124,41 @@ class EmailService
         string $filename,
         string $customerName,
         bool $isTest = false,
+        ?string $intendedClientEmail = null,
     ): array {
-        $suffix = $isTest ? ' (Test)' : '';
+        $redirected = !$isTest
+            && null !== $intendedClientEmail
+            && '' !== trim($intendedClientEmail)
+            && strcasecmp(trim($to), trim($intendedClientEmail)) !== 0;
+
+        $suffix = ($isTest || $redirected) ? ' (Test)' : '';
         $subject = 'Lieferbestätigung — '.$customerName.$suffix;
         $testNote = $isTest ? ' (Testdaten)' : '';
+        $redirectNote = '';
+        if ($redirected) {
+            $redirectNote = "\n\n[Testmodus] Empfänger laut Auftrag: ".trim($intendedClientEmail)
+                ." — E-Mail wurde an die Testadresse umgeleitet.\n";
+        }
+
         $text = "Guten Tag,\n\n"
             ."anbei erhalten Sie die Lieferbestätigung für Ihre Lieferung".$testNote.".\n\n"
-            ."Ihre Ware wurde abgestellt / vor Ort hinterlassen.\n\n"
+            ."Ihre Ware wurde abgestellt / vor Ort hinterlassen."
+            .$redirectNote."\n\n"
             ."Mit freundlichen Grüßen\n"
             ."MySpiegel-Lieferservice\n";
+
+        $htmlRedirect = '';
+        if ($redirected) {
+            $htmlRedirect = '<p><em>[Testmodus] Empfänger laut Auftrag: '
+                .htmlspecialchars(trim($intendedClientEmail), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                .' — E-Mail wurde an die Testadresse umgeleitet.</em></p>';
+        }
 
         $html = '<p>Guten Tag,</p>'
             .'<p>anbei erhalten Sie die <strong>Lieferbestätigung</strong> für Ihre Lieferung'
             .($isTest ? ' (Testdaten)' : '').'.</p>'
             .'<p>Ihre Ware wurde abgestellt / vor Ort hinterlassen.</p>'
+            .$htmlRedirect
             .'<p>Mit freundlichen Grüßen<br>MySpiegel-Lieferservice</p>';
 
         $result = $this->send($to, $subject, $text, $html, [

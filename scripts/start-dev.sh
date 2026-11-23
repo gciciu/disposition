@@ -8,7 +8,7 @@
 #     delivery/             ← project folder cloned by the installer
 #
 # Also works from: project root, or project/scripts/.
-# Before start: git pull --ff-only, cache:clear, doctrine migrations.
+# Before start: force pull (fetch + reset --hard), cache:clear, doctrine migrations.
 # If services are already running on the known ports, stop them and restart.
 # Usage: ./start-dev.sh   OR   ./scripts/start-dev.sh
 # Optional:
@@ -223,14 +223,17 @@ pull_latest_changes() {
     return 0
   fi
 
-  echo "Pulling latest changes from git..."
+  echo "Force-pulling latest changes from git..."
   (
     cd "$ROOT"
-    if [[ -n "$(git status --porcelain 2>/dev/null || true)" ]]; then
-      echo "WARNING: working tree has local changes; pull may fail."
+    # Client/runtime machine: always match remote (discards local changes)
+    git fetch origin
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+      git reset --hard "$upstream"
+    else
+      git reset --hard "origin/${branch}"
     fi
-    # Fast-forward only — refuse to create merge commits on a dirty/divergent branch
-    git pull --ff-only
   )
 }
 
@@ -501,7 +504,7 @@ cors_preflight_smoke_test() {
     elif [[ -n "$body" ]]; then
       echo "  Response: $(printf '%s' "$body" | tr '\n' ' ' | cut -c1-240)" >&2
     fi
-    echo "  Fix: cd \"$ROOT\" && git pull --ff-only && cd backend && php bin/console cache:clear && re-run start-dev." >&2
+    echo "  Fix: cd \"$ROOT\" && git fetch origin && git reset --hard \"@{u}\" && cd backend && php bin/console cache:clear && re-run start-dev." >&2
     return 1
   fi
 

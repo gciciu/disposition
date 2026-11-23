@@ -530,7 +530,8 @@ class GoogleMapsService
         }
 
         $response = $this->httpClient->request('GET', $url, [
-            'timeout' => 30,
+            'timeout' => 8,
+            'max_duration' => 12,
         ]);
 
         $statusCode = $response->getStatusCode();

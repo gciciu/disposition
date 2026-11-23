@@ -66,35 +66,44 @@ class OsmTileMapRenderer
         $tileMaxY = (int) floor(($se['y'] - 0.001) / self::TILE_SIZE);
         $n = 2 ** $zoom;
 
+        $jobs = [];
         for ($ty = $tileMinY; $ty <= $tileMaxY; ++$ty) {
             for ($tx = $tileMinX; $tx <= $tileMaxX; ++$tx) {
                 if ($ty < 0 || $ty >= $n) {
                     continue;
                 }
                 $wrappedX = (($tx % $n) + $n) % $n;
-                $tile = $this->fetchTile($zoom, $wrappedX, $ty);
-                if (null === $tile) {
-                    continue;
-                }
-
-                $destX = (int) round(($tx * self::TILE_SIZE - $nw['x']) * $scale);
-                $destY = (int) round(($ty * self::TILE_SIZE - $nw['y']) * $scale);
-                $destW = (int) max(1, round(self::TILE_SIZE * $scale));
-                $destH = (int) max(1, round(self::TILE_SIZE * $scale));
-                imagecopyresampled(
-                    $canvas,
-                    $tile,
-                    $destX,
-                    $destY,
-                    0,
-                    0,
-                    $destW,
-                    $destH,
-                    self::TILE_SIZE,
-                    self::TILE_SIZE,
-                );
-                imagedestroy($tile);
+                $jobs[] = [
+                    'tx' => $tx,
+                    'ty' => $ty,
+                    'response' => $this->startTileRequest($zoom, $wrappedX, $ty),
+                ];
             }
+        }
+
+        foreach ($jobs as $job) {
+            $tile = $this->decodeTileResponse($job['response']);
+            if (null === $tile) {
+                continue;
+            }
+
+            $destX = (int) round(($job['tx'] * self::TILE_SIZE - $nw['x']) * $scale);
+            $destY = (int) round(($job['ty'] * self::TILE_SIZE - $nw['y']) * $scale);
+            $destW = (int) max(1, round(self::TILE_SIZE * $scale));
+            $destH = (int) max(1, round(self::TILE_SIZE * $scale));
+            imagecopyresampled(
+                $canvas,
+                $tile,
+                $destX,
+                $destY,
+                0,
+                0,
+                $destW,
+                $destH,
+                self::TILE_SIZE,
+                self::TILE_SIZE,
+            );
+            imagedestroy($tile);
         }
 
         $pixelPoints = [];
@@ -151,15 +160,29 @@ class OsmTileMapRenderer
         return false === $png || '' === $png ? null : $png;
     }
 
-    private function fetchTile(int $zoom, int $x, int $y): mixed
+    private function startTileRequest(int $zoom, int $x, int $y): mixed
     {
         try {
-            $response = $this->httpClient->request('GET', sprintf(self::TILE_URL, $zoom, $x, $y), [
-                'timeout' => 15,
+            return $this->httpClient->request('GET', sprintf(self::TILE_URL, $zoom, $x, $y), [
+                // Keep map generation well under typical nginx/FPM 60–120s budgets.
+                'timeout' => 3,
+                'max_duration' => 5,
                 'headers' => [
                     'User-Agent' => 'DeliveryRoutePdf/1.0 (route overview; local compose)',
                 ],
             ]);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function decodeTileResponse(mixed $response): mixed
+    {
+        if (null === $response) {
+            return null;
+        }
+
+        try {
             if ($response->getStatusCode() >= 400) {
                 return null;
             }

@@ -51,11 +51,13 @@ MERCURE_PUBLISHER_JWT_KEY=SECRET
 MERCURE_SUBSCRIBER_JWT_KEY=SECRET
 MERCURE_PUBLISHER_JWT_ALG=HS256
 MERCURE_SUBSCRIBER_JWT_ALG=HS256
-MERCURE_EXTRA_DIRECTIVES="cors_origins *"
+MERCURE_EXTRA_DIRECTIVES=
 EOF
 chown APP_USER:APP_USER /var/www/delivery/mercure/.env
 chmod 600 /var/www/delivery/mercure/.env
 ```
+
+`cors_origins *` is hardcoded in `mercure/Caddyfile` (do not rely on `MERCURE_EXTRA_DIRECTIVES` for CORS — systemd env files often break the spaced value).
 
 ---
 
@@ -89,9 +91,9 @@ ss -tlnp | grep 3000
 
 ---
 
-### 5. nginx (admin site)
+### 5. nginx (admin **and** driver sites)
 
-Custom Nginx Config:
+Add the same block on **both** vhosts (`delivery…` and `driver…`). Driver SPA connects same-origin to avoid CORS.
 
 ```nginx
 location /.well-known/mercure {
@@ -130,6 +132,23 @@ curl -s -o /dev/null -w "%{http_code}\n" \
   "https://ADMIN_HOST/.well-known/mercure?topic=admin.routes"
 # 400/401 = OK; 502/404 = service or nginx
 ```
+
+CORS check (driver origin → admin hub; header must be present):
+
+```bash
+curl -si -H "Origin: https://DRIVER_HOST" \
+  "https://ADMIN_HOST/.well-known/mercure?topic=admin.routes" \
+  | tr -d '\r' | grep -iE 'HTTP/|access-control-allow-origin'
+# Expect: Access-Control-Allow-Origin: *   (or the driver origin)
+```
+
+If the header is missing: pull latest `mercure/Caddyfile` (has hardcoded `cors_origins *`), then:
+
+```bash
+sudo systemctl restart delivery-mercure.service
+```
+
+Also confirm driver nginx has `location /.well-known/mercure` (same as admin).
 
 ---
 

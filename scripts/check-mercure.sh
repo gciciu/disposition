@@ -293,6 +293,27 @@ else
     000) bad "cannot reach public URL (DNS/SSL/firewall)" ;;
     *) warn "unexpected public code $PUBLIC_CODE" ;;
   esac
+
+  # CORS: driver SPA often connects cross-origin to admin hub
+  DRIVER_ORIGIN="${DRIVER_ORIGIN:-}"
+  if [[ -z "$DRIVER_ORIGIN" && -n "${DRIVER_HOST:-}" ]]; then
+    DRIVER_ORIGIN="https://${DRIVER_HOST}"
+  fi
+  if [[ -z "$DRIVER_ORIGIN" && -n "${ADMIN_HOST:-}" ]]; then
+    # guess sibling driver host
+    DRIVER_ORIGIN="https://${ADMIN_HOST/delivery./driver.}"
+  fi
+  if [[ -n "$DRIVER_ORIGIN" && "$PUBLIC_CODE" != "000" ]]; then
+    CORS_HDR="$(curl -si -H "Origin: ${DRIVER_ORIGIN}" --connect-timeout 3 --max-time 8 "$PROBE_URL" 2>/dev/null \
+      | tr -d '\r' | grep -i '^access-control-allow-origin:' | head -n1 || true)"
+    if [[ -n "$CORS_HDR" ]]; then
+      ok "CORS header present for Origin ${DRIVER_ORIGIN}: ${CORS_HDR}"
+    else
+      bad "no Access-Control-Allow-Origin for Origin ${DRIVER_ORIGIN}"
+      info "ensure mercure/Caddyfile has 'cors_origins *', then: systemctl restart $SERVICE"
+      info "also add /.well-known/mercure on the driver vhost (same-origin, no CORS)"
+    fi
+  fi
 fi
 
 # --- summary ---

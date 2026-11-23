@@ -10,6 +10,7 @@ use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryProofType;
 use App\Enum\RouteOriginType;
 use App\Repository\DeliveryRouteRepository;
+use App\Service\AppSettingsService;
 use App\Service\DeliveryConfirmationPdfService;
 use App\Service\DeliveryProofService;
 use App\Service\DeliveryRouteMetricsService;
@@ -39,6 +40,7 @@ class DriverRouteController extends AbstractController
         private readonly DeliveryProofService $proofService,
         private readonly DeliveryConfirmationPdfService $confirmationPdf,
         private readonly EmailService $emailService,
+        private readonly AppSettingsService $settings,
         private readonly DeliveryRouteMetricsService $metrics,
         private readonly GoogleMapsService $googleMaps,
         private readonly DriverRealtimePublisher $realtime,
@@ -156,7 +158,7 @@ class DriverRouteController extends AbstractController
         } catch (\Throwable $e) {
             return $this->json(
                 ['error' => 'Could not finish route: '.$e->getMessage()],
-                Response::HTTP_BAD_GATEWAY,
+                Response::HTTP_INTERNAL_SERVER_ERROR,
             );
         }
     }
@@ -469,7 +471,8 @@ class DriverRouteController extends AbstractController
     }
 
     /**
-     * Doc1 B: send Lieferbestätigung when left_on_site and order has an email.
+     * Doc1 B: send Lieferbestätigung when left_on_site.
+     * Recipient comes from settings (test address by default, or client email).
      * Failures are swallowed so the driver completion is not blocked.
      */
     private function maybeSendLeftOnSiteConfirmation(DeliveryOrder $order): void
@@ -478,8 +481,11 @@ class DriverRouteController extends AbstractController
             return;
         }
 
-        $to = trim((string) $order->getEmail());
-        if ('' === $to || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        $clientEmail = trim((string) $order->getEmail());
+        $to = $this->settings->resolveConfirmationEmailRecipient(
+            '' !== $clientEmail ? $clientEmail : null,
+        );
+        if (null === $to) {
             return;
         }
 
@@ -491,6 +497,8 @@ class DriverRouteController extends AbstractController
                 $pdf,
                 $filename,
                 $order->getClientName(),
+                false,
+                '' !== $clientEmail ? $clientEmail : null,
             );
             $this->proofService->markConfirmationEmailSent($order);
         } catch (\Throwable) {

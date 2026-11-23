@@ -3,8 +3,12 @@
 namespace App\Service;
 
 use App\Entity\DeliveryRoute;
+use App\Repository\DeliveryRouteRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
  * Marks a route as finished and stores the completion PDF report.
@@ -13,17 +17,22 @@ class RouteFinishService
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
+        private readonly DeliveryRouteRepository $routes,
         private readonly RouteCompletionPdfService $completionPdf,
         private readonly DriverRealtimePublisher $realtime,
         private readonly AppSettingsService $settings,
         private readonly EmailService $emailService,
+        private readonly EventDispatcherInterface $eventDispatcher,
         private readonly string $projectDir,
+        private readonly ?LoggerInterface $logger = null,
     ) {
     }
 
     /**
      * Finish the route (courier button or auto after the last stop).
-     * Generates and stores the completion PDF once.
+     *
+     * Persists completion immediately and returns; PDF + email run on
+     * kernel.terminate so nginx/FPM timeouts do not surface as 502 to the driver.
      */
     public function finish(DeliveryRoute $route): DeliveryRoute
     {
@@ -36,13 +45,42 @@ class RouteFinishService
         }
 
         $route->setCompletedAt(new \DateTimeImmutable());
-        $stored = $this->storePdf($route);
-        $this->maybeEmailCompletionPdf($route, $stored['pdf'], $stored['filename']);
-
         $this->em->flush();
         $this->realtime->publishRouteCompleted($route);
 
+        $routeId = $route->getId();
+        if (null !== $routeId) {
+            $this->eventDispatcher->addListener(
+                KernelEvents::TERMINATE,
+                function () use ($routeId): void {
+                    $this->runPostFinishSideEffects($routeId);
+                },
+            );
+        }
+
         return $route;
+    }
+
+    /**
+     * Generate/store the completion PDF and optionally email it (best-effort).
+     */
+    public function runPostFinishSideEffects(int $routeId): void
+    {
+        try {
+            $route = $this->routes->find($routeId);
+            if (!$route instanceof DeliveryRoute || !$route->isCompleted()) {
+                return;
+            }
+
+            $stored = $this->storePdf($route);
+            $this->em->flush();
+            $this->maybeEmailCompletionPdf($route, $stored['pdf'], $stored['filename']);
+        } catch (\Throwable $e) {
+            $this->logger?->error('Route completion PDF/email failed after finish: '.$e->getMessage(), [
+                'routeId' => $routeId,
+                'exception' => $e,
+            ]);
+        }
     }
 
     /**

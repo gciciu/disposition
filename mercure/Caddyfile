@@ -24,6 +24,9 @@
 		protocol_version_compatibility 8
 		publisher_jwt {env.MERCURE_PUBLISHER_JWT_KEY} {env.MERCURE_PUBLISHER_JWT_ALG}
 		subscriber_jwt {env.MERCURE_SUBSCRIBER_JWT_KEY} {env.MERCURE_SUBSCRIBER_JWT_ALG}
+		# Hardcoded: systemd EnvironmentFile often drops/mangles "cors_origins *"
+		# (space + quotes). Without this, driver.* → delivery.* EventSource fails CORS.
+		cors_origins *
 		{$MERCURE_EXTRA_DIRECTIVES}
 	}
 

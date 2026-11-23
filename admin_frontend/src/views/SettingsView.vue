@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 import { mdiCogOutline } from '@mdi/js'
@@ -18,16 +18,35 @@ const toast = useToast()
 
 const form = reactive({
   pdfReportRecipientEmail: '',
+  confirmationEmailMode: 'test',
+  confirmationEmailTestRecipient: '',
 })
 
 const loading = ref(false)
 const saving = ref(false)
+
+const confirmationModeOptions = computed(() => [
+  { id: 'test', label: t('settings.confirmationEmailModeTest') },
+  { id: 'client', label: t('settings.confirmationEmailModeClient') },
+])
+
+const selectedConfirmationMode = computed({
+  get: () =>
+    confirmationModeOptions.value.find((option) => option.id === form.confirmationEmailMode)
+    ?? confirmationModeOptions.value[0],
+  set: (option) => {
+    form.confirmationEmailMode = option?.id === 'client' ? 'client' : 'test'
+  },
+})
 
 const loadSettings = async () => {
   loading.value = true
   try {
     const { data } = await api.get('/api/admin/settings')
     form.pdfReportRecipientEmail = data.settings?.pdfReportRecipientEmail ?? ''
+    form.confirmationEmailMode =
+      data.settings?.confirmationEmailMode === 'client' ? 'client' : 'test'
+    form.confirmationEmailTestRecipient = data.settings?.confirmationEmailTestRecipient ?? ''
   } catch (e) {
     showApiError(toast, e, t('settings.loadFailed'))
   } finally {
@@ -40,8 +59,13 @@ const submit = async () => {
   try {
     const { data } = await api.put('/api/admin/settings', {
       pdfReportRecipientEmail: form.pdfReportRecipientEmail.trim() || null,
+      confirmationEmailMode: form.confirmationEmailMode === 'client' ? 'client' : 'test',
+      confirmationEmailTestRecipient: form.confirmationEmailTestRecipient.trim() || null,
     })
     form.pdfReportRecipientEmail = data.settings?.pdfReportRecipientEmail ?? ''
+    form.confirmationEmailMode =
+      data.settings?.confirmationEmailMode === 'client' ? 'client' : 'test'
+    form.confirmationEmailTestRecipient = data.settings?.confirmationEmailTestRecipient ?? ''
     toast.success(t('settings.saved'))
   } catch (e) {
     showApiError(toast, e, t('settings.saveFailed'))
@@ -71,6 +95,24 @@ onMounted(loadSettings)
             v-model="form.pdfReportRecipientEmail"
             type="email"
             :placeholder="t('settings.pdfReportRecipientEmailPlaceholder')"
+          />
+        </FormField>
+
+        <FormField
+          :label="t('settings.confirmationEmailMode')"
+          :help="t('settings.confirmationEmailModeHelp')"
+        >
+          <FormControl v-model="selectedConfirmationMode" :options="confirmationModeOptions" />
+        </FormField>
+
+        <FormField
+          :label="t('settings.confirmationEmailTestRecipient')"
+          :help="t('settings.confirmationEmailTestRecipientHelp')"
+        >
+          <FormControl
+            v-model="form.confirmationEmailTestRecipient"
+            type="email"
+            :placeholder="t('settings.confirmationEmailTestRecipientPlaceholder')"
           />
         </FormField>
 

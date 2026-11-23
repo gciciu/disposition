@@ -86,13 +86,23 @@ export function useRealtime(options = {}) {
     return data
   }
 
-  const buildHubUrl = (ticketPayload) => {
-    const hubBase =
-      import.meta.env.VITE_MERCURE_URL ||
-      ticketPayload?.hubUrl ||
-      'http://localhost:3000/.well-known/mercure'
+  const resolveHubBase = (ticketPayload) => {
+    if (import.meta.env.VITE_MERCURE_URL) {
+      return import.meta.env.VITE_MERCURE_URL
+    }
+    // Prod: same-origin via nginx /.well-known/mercure (avoids cross-subdomain CORS).
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      if (host && host !== 'localhost' && host !== '127.0.0.1') {
+        return `${window.location.origin}/.well-known/mercure`
+      }
+    }
+    return ticketPayload?.hubUrl || 'http://localhost:3000/.well-known/mercure'
+  }
 
-    const url = new URL(hubBase)
+  const buildHubUrl = (ticketPayload) => {
+    const hubBase = resolveHubBase(ticketPayload)
+    const url = new URL(hubBase, typeof window !== 'undefined' ? window.location.origin : undefined)
     const topics = Array.isArray(ticketPayload?.topics) ? ticketPayload.topics : []
     for (const topic of topics) {
       if (typeof topic === 'string' && topic.length > 0) {

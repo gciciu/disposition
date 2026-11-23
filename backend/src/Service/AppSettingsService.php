@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\AppSettings;
+use App\Enum\ConfirmationEmailMode;
 use App\Repository\AppSettingsRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -37,17 +38,25 @@ class AppSettingsService
         $settings = $this->get();
 
         if (\array_key_exists('pdfReportRecipientEmail', $payload)) {
-            $email = $payload['pdfReportRecipientEmail'];
-            if (null !== $email && !\is_string($email)) {
-                throw new BadRequestHttpException('pdfReportRecipientEmail must be a string or null');
-            }
+            $settings->setPdfReportRecipientEmail($this->normalizeOptionalEmail(
+                $payload['pdfReportRecipientEmail'],
+                'pdfReportRecipientEmail',
+            ));
+        }
 
-            $email = null !== $email ? trim($email) : '';
-            if ('' !== $email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                throw new BadRequestHttpException('A valid recipient email is required');
+        if (\array_key_exists('confirmationEmailMode', $payload)) {
+            $mode = ConfirmationEmailMode::tryFromMixed($payload['confirmationEmailMode']);
+            if (null === $mode) {
+                throw new BadRequestHttpException('confirmationEmailMode must be "test" or "client"');
             }
+            $settings->setConfirmationEmailMode($mode);
+        }
 
-            $settings->setPdfReportRecipientEmail('' === $email ? null : $email);
+        if (\array_key_exists('confirmationEmailTestRecipient', $payload)) {
+            $settings->setConfirmationEmailTestRecipient($this->normalizeOptionalEmail(
+                $payload['confirmationEmailTestRecipient'],
+                'confirmationEmailTestRecipient',
+            ));
         }
 
         $this->em->flush();
@@ -57,8 +66,55 @@ class AppSettingsService
 
     public function getPdfReportRecipientEmail(): ?string
     {
-        $email = $this->get()->getPdfReportRecipientEmail();
-        if (null === $email || '' === $email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return $this->validatedEmail($this->get()->getPdfReportRecipientEmail());
+    }
+
+    public function getConfirmationEmailMode(): ConfirmationEmailMode
+    {
+        return $this->get()->getConfirmationEmailMode();
+    }
+
+    public function getConfirmationEmailTestRecipient(): ?string
+    {
+        return $this->validatedEmail($this->get()->getConfirmationEmailTestRecipient());
+    }
+
+    /**
+     * Resolves the Lieferbestätigung recipient for a delivered order.
+     * Returns null when sending should be skipped (missing configured address).
+     */
+    public function resolveConfirmationEmailRecipient(?string $clientEmail): ?string
+    {
+        $mode = $this->getConfirmationEmailMode();
+
+        if (ConfirmationEmailMode::Client === $mode) {
+            return $this->validatedEmail($clientEmail);
+        }
+
+        return $this->getConfirmationEmailTestRecipient();
+    }
+
+    private function normalizeOptionalEmail(mixed $email, string $field): ?string
+    {
+        if (null !== $email && !\is_string($email)) {
+            throw new BadRequestHttpException($field.' must be a string or null');
+        }
+
+        $email = null !== $email ? trim($email) : '';
+        if ('' === $email) {
+            return null;
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new BadRequestHttpException('A valid recipient email is required');
+        }
+
+        return $email;
+    }
+
+    private function validatedEmail(?string $email): ?string
+    {
+        $email = null !== $email ? trim($email) : '';
+        if ('' === $email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return null;
         }
 

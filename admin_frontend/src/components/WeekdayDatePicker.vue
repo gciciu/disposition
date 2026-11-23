@@ -501,12 +501,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* Hide the browser's native empty-date glyphs so the localized placeholder is visible. */
-.weekday-date-picker__input--empty:not(:focus)::-webkit-datetime-edit {
+/* Hide the browser's native empty-date glyphs (incl. focused "дд.мм.гггг") so only the overlay placeholder shows. */
+.weekday-date-picker__input--empty::-webkit-datetime-edit {
   color: transparent;
 }
 
-.weekday-date-picker__input--empty:not(:focus)::-webkit-datetime-edit-fields-wrapper {
+.weekday-date-picker__input--empty::-webkit-datetime-edit-fields-wrapper {
   opacity: 0;
 }
 </style>

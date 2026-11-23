@@ -192,6 +192,28 @@ class RouteCompletionPdfBuilder
         if (!imageistruecolor($image)) {
             imagepalettetotruecolor($image);
         }
+
+        // Downscale before the per-pixel pass — large signature canvases otherwise
+        // dominate route-finish latency on PHP-FPM (nginx 502 / fastcgi timeout).
+        $maxEdge = 480;
+        $srcW = imagesx($image);
+        $srcH = imagesy($image);
+        if ($srcW > $maxEdge || $srcH > $maxEdge) {
+            $scale = min($maxEdge / $srcW, $maxEdge / $srcH);
+            $dstW = max(1, (int) round($srcW * $scale));
+            $dstH = max(1, (int) round($srcH * $scale));
+            $scaled = imagecreatetruecolor($dstW, $dstH);
+            if (false !== $scaled) {
+                imagealphablending($scaled, false);
+                imagesavealpha($scaled, true);
+                $clear = imagecolorallocatealpha($scaled, 0, 0, 0, 127);
+                imagefilledrectangle($scaled, 0, 0, $dstW, $dstH, $clear);
+                imagecopyresampled($scaled, $image, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
+                imagedestroy($image);
+                $image = $scaled;
+            }
+        }
+
         imagealphablending($image, false);
         imagesavealpha($image, true);
 

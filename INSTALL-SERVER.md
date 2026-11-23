@@ -212,11 +212,13 @@ MERCURE_PUBLISHER_JWT_KEY=YOUR_SECRET
 MERCURE_SUBSCRIBER_JWT_KEY=YOUR_SECRET
 MERCURE_PUBLISHER_JWT_ALG=HS256
 MERCURE_SUBSCRIBER_JWT_ALG=HS256
-MERCURE_EXTRA_DIRECTIVES="cors_origins *"
+MERCURE_EXTRA_DIRECTIVES=
 EOF
 chown APP_USER:APP_USER /var/www/delivery/mercure/.env
 chmod 600 /var/www/delivery/mercure/.env
 ```
+
+(`cors_origins *` is in `mercure/Caddyfile` — do not put it only in the env file.)
 
 ```bash
 cat > /etc/systemd/system/delivery-mercure.service <<'UNIT'
@@ -293,7 +295,7 @@ location ~ /\.(?!well-known) {
 }
 ```
 
-If the panel already routes all PHP through `index.php`, only the Mercure `location` is needed (Mercure can stay on the admin site only if you prefer).
+If the panel already routes all PHP through `index.php`, only the Mercure `location` is needed — put it on **both** admin and driver sites (driver SPA uses same-origin Mercure).
 
 Do **not** wrap in `server { }` — the panel already generates it.
 
