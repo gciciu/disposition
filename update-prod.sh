@@ -40,6 +40,15 @@ if [[ ! -f backend/bin/console ]]; then
   exit 1
 fi
 
+if [[ ! -w .git ]] || [[ -e .git/FETCH_HEAD && ! -w .git/FETCH_HEAD ]]; then
+  echo "Permission denied on .git (cannot write FETCH_HEAD)." >&2
+  echo "Fix ownership, then re-run as that user (do not use sudo for git pull):" >&2
+  echo "  sudo chown -R \"\$(whoami):\$(whoami)\" \"$ROOT/.git\"" >&2
+  echo "If a previous deploy ran as root, also fix the tree:" >&2
+  echo "  sudo chown -R \"\$(whoami):\$(whoami)\" \"$ROOT\"" >&2
+  exit 1
+fi
+
 log "1. Git pull (ff-only)"
 git fetch --prune origin
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
