@@ -53,9 +53,15 @@ else
   git --no-pager log --oneline "${BEFORE}..${AFTER}"
 fi
 
+# Real env vars win over .env / .env.local. Without this, composer auto-scripts
+# run cache:clear as APP_ENV=dev and fail after --no-dev (DebugBundle missing).
+export APP_ENV=prod
+export APP_DEBUG=0
+
 log "2. Composer install"
 cd "$ROOT/backend"
-composer install --no-dev --optimize-autoloader --no-interaction
+# Skip auto-scripts: we clear/warmup cache explicitly for prod below.
+composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
 log "3. Doctrine migrations"
 php bin/console doctrine:migrations:migrate --no-interaction --env=prod
