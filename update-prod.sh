@@ -85,18 +85,21 @@ detect_group() {
 }
 
 can_sudo() {
+  # Prefer passwordless check; interactive sudo is still OK later in run_sudo.
   sudo -n true 2>/dev/null
 }
 
 run_sudo() {
   if [[ $EUID -eq 0 ]]; then
     "$@"
-  elif can_sudo; then
-    sudo "$@"
-  else
-    echo "Need sudo for: $*" >&2
-    echo "Run once: sudo chown -R \"$(detect_owner):$(detect_group)\" \"$ROOT\"" >&2
-    echo "Then re-run without sudo: bash update-prod.sh" >&2
+    return
+  fi
+  # Interactive sudo (password prompt) is fine — do not require NOPASSWD.
+  if ! sudo "$@"; then
+    echo "sudo failed for: $*" >&2
+    echo "Fix once manually, then re-run as the app user:" >&2
+    echo "  sudo chown -R \"$(detect_owner):$(detect_group)\" \"$ROOT\"" >&2
+    echo "  bash update-prod.sh" >&2
     exit 1
   fi
 }
