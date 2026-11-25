@@ -8,7 +8,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 class GoogleMapsService
 {
     private const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
-    private const DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
+    private const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
     private const STATIC_MAP_URL = 'https://maps.googleapis.com/maps/api/staticmap';
     private const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
     private const PLACE_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
@@ -250,10 +250,10 @@ class GoogleMapsService
     }
 
     /**
-     * Google Directions allows at most 25 intermediate waypoints (+ origin + destination).
+     * Routes API allows at most 25 intermediate waypoints (+ origin + destination).
      * Longer delivery routes are split into overlapping chunks and legs are concatenated.
      */
-    private const DIRECTIONS_MAX_POINTS = 27;
+    private const ROUTES_MAX_POINTS = 27;
 
     /**
      * @param list<array{formattedAddress: string, lat: float, lng: float, placeId?: string|null}> $points
@@ -280,10 +280,10 @@ class GoogleMapsService
         $overviewPolyline = null;
         $pointCount = \count($points);
         // Overlap by 1 so the next chunk starts where the previous ended.
-        $step = self::DIRECTIONS_MAX_POINTS - 1;
+        $step = self::ROUTES_MAX_POINTS - 1;
 
         for ($start = 0; $start < $pointCount - 1; $start += $step) {
-            $end = min($start + self::DIRECTIONS_MAX_POINTS - 1, $pointCount - 1);
+            $end = min($start + self::ROUTES_MAX_POINTS - 1, $pointCount - 1);
             $chunk = \array_slice($points, $start, $end - $start + 1);
             $chunkResult = $this->requestTruckRouteChunk($chunk);
 
@@ -332,66 +332,83 @@ class GoogleMapsService
         if (\count($points) < 2) {
             throw new \InvalidArgumentException('At least two valid addresses are required');
         }
-        if (\count($points) > self::DIRECTIONS_MAX_POINTS) {
+        if (\count($points) > self::ROUTES_MAX_POINTS) {
             throw new \InvalidArgumentException(sprintf(
-                'Directions chunk exceeds %d points',
-                self::DIRECTIONS_MAX_POINTS,
+                'Routes chunk exceeds %d points',
+                self::ROUTES_MAX_POINTS,
             ));
         }
 
-        $origin = $this->pointAsLatLng($points[0]);
-        $destination = $this->pointAsLatLng($points[\count($points) - 1]);
-        $waypoints = [];
-
+        $intermediates = [];
         for ($i = 1, $last = \count($points) - 1; $i < $last; ++$i) {
-            $waypoints[] = $this->pointAsLatLng($points[$i]);
+            $intermediates[] = $this->pointAsRoutesWaypoint($points[$i]);
         }
 
-        $query = [
-            'origin' => $origin,
-            'destination' => $destination,
-            'mode' => 'driving',
-            // Prefer major roads suitable for freight; avoids ferries when possible.
-            'avoid' => 'ferries',
-            'units' => 'metric',
-            'language' => 'de',
-            'region' => 'de',
-            // Align travel time with Google Maps UI (traffic-aware estimate).
-            'departure_time' => 'now',
-            'traffic_model' => 'best_guess',
-            'key' => $this->apiKey,
+        $body = [
+            'origin' => $this->pointAsRoutesWaypoint($points[0]),
+            'destination' => $this->pointAsRoutesWaypoint($points[\count($points) - 1]),
+            'travelMode' => 'DRIVE',
+            // Traffic-aware ETAs (closest to former Directions departure_time=now).
+            'routingPreference' => 'TRAFFIC_AWARE_OPTIMAL',
+            'trafficModel' => 'BEST_GUESS',
+            'departureTime' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
+            'languageCode' => 'de',
+            'regionCode' => 'DE',
+            'units' => 'METRIC',
+            'routeModifiers' => [
+                'avoidFerries' => true,
+            ],
         ];
-
-        if ($waypoints) {
-            $query['waypoints'] = implode('|', $waypoints);
+        if ($intermediates) {
+            $body['intermediates'] = $intermediates;
         }
 
-        $response = $this->httpClient->request('GET', self::DIRECTIONS_URL, [
-            'query' => $query,
+        $response = $this->httpClient->request('POST', self::ROUTES_URL, [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'X-Goog-Api-Key' => $this->apiKey,
+                'X-Goog-FieldMask' => implode(',', [
+                    'routes.legs.duration',
+                    'routes.legs.distanceMeters',
+                    'routes.polyline.encodedPolyline',
+                ]),
+            ],
+            'json' => $body,
             'timeout' => 20,
             'max_duration' => 45,
         ]);
 
         $data = $response->toArray(false);
-        $status = $data['status'] ?? 'UNKNOWN_ERROR';
+        $httpStatus = $response->getStatusCode();
 
-        if ('OK' !== $status || empty($data['routes'][0]['legs'])) {
-            $detail = isset($data['error_message']) && \is_string($data['error_message']) && '' !== $data['error_message']
-                ? $this->directionsErrorMessage($status).' ('.$data['error_message'].')'
-                : $this->directionsErrorMessage($status);
-            throw new \RuntimeException($detail);
+        if ($httpStatus >= 400 || isset($data['error'])) {
+            throw new \RuntimeException($this->routesApiErrorMessage($data, $httpStatus));
+        }
+
+        if (empty($data['routes'][0]['legs']) || !\is_array($data['routes'][0]['legs'])) {
+            throw new \RuntimeException($this->directionsErrorMessage('ZERO_RESULTS'));
         }
 
         $legs = $data['routes'][0]['legs'];
+        if (\count($legs) !== \count($points) - 1) {
+            throw new \RuntimeException(sprintf(
+                'Routes API returned %d legs for %d points',
+                \count($legs),
+                \count($points),
+            ));
+        }
+
         $segments = [];
-
         foreach ($legs as $index => $leg) {
-            // Prefer traffic-aware duration when Google returns it (requires departure_time).
-            $durationSeconds = (int) ($leg['duration_in_traffic']['value'] ?? $leg['duration']['value'] ?? 0);
-            $distanceMeters = (int) ($leg['distance']['value'] ?? 0);
+            if (!\is_array($leg)) {
+                continue;
+            }
 
-            $fromAddress = $leg['start_address'] ?? ($points[$index]['formattedAddress'] ?? '');
-            $toAddress = $leg['end_address'] ?? ($points[$index + 1]['formattedAddress'] ?? '');
+            $durationSeconds = $this->parseDurationSeconds($leg['duration'] ?? null);
+            $distanceMeters = (int) ($leg['distanceMeters'] ?? 0);
+            $fromAddress = $points[$index]['formattedAddress'] ?? '';
+            $toAddress = $points[$index + 1]['formattedAddress'] ?? '';
+
             $segments[] = [
                 'fromIndex' => $index,
                 'toIndex' => $index + 1,
@@ -404,7 +421,7 @@ class GoogleMapsService
             ];
         }
 
-        $overviewPolyline = $data['routes'][0]['overview_polyline']['points'] ?? null;
+        $overviewPolyline = $data['routes'][0]['polyline']['encodedPolyline'] ?? null;
         if (!\is_string($overviewPolyline) || '' === $overviewPolyline) {
             $overviewPolyline = null;
         }
@@ -413,6 +430,59 @@ class GoogleMapsService
             'segments' => $segments,
             'overviewPolyline' => $overviewPolyline,
         ];
+    }
+
+    /**
+     * @param array{lat: float, lng: float, placeId?: string|null} $point
+     *
+     * @return array{location: array{latLng: array{latitude: float, longitude: float}}}
+     */
+    private function pointAsRoutesWaypoint(array $point): array
+    {
+        return [
+            'location' => [
+                'latLng' => [
+                    'latitude' => (float) $point['lat'],
+                    'longitude' => (float) $point['lng'],
+                ],
+            ],
+        ];
+    }
+
+    private function parseDurationSeconds(mixed $duration): int
+    {
+        if (\is_int($duration) || \is_float($duration)) {
+            return (int) round((float) $duration);
+        }
+        if (\is_string($duration) && preg_match('/^(\d+(?:\.\d+)?)s$/', trim($duration), $matches)) {
+            return (int) round((float) $matches[1]);
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function routesApiErrorMessage(array $data, int $httpStatus): string
+    {
+        $error = $data['error'] ?? null;
+        $status = \is_array($error) && isset($error['status']) && \is_string($error['status'])
+            ? $error['status']
+            : 'HTTP_'.$httpStatus;
+        $message = \is_array($error) && isset($error['message']) && \is_string($error['message'])
+            ? $error['message']
+            : null;
+
+        $base = match ($status) {
+            'PERMISSION_DENIED', 'UNAUTHENTICATED' => 'Google Maps request denied — enable Routes API for this key',
+            'RESOURCE_EXHAUSTED' => 'Google Maps quota exceeded',
+            'INVALID_ARGUMENT' => 'Invalid route request',
+            'NOT_FOUND' => 'One or more waypoints could not be resolved for routing',
+            default => $this->directionsErrorMessage($status),
+        };
+
+        return null !== $message && '' !== $message ? $base.' ('.$message.')' : $base;
     }
 
     /**
@@ -844,14 +914,6 @@ class GoogleMapsService
     }
 
     /**
-     * @param array{lat: float, lng: float} $point
-     */
-    private function pointAsLatLng(array $point): string
-    {
-        return sprintf('%F,%F', $point['lat'], $point['lng']);
-    }
-
-    /**
      * Location value for Maps URLs origin/destination/waypoints.
      * Prefer stable lat,lng coordinates; fall back to formatted address.
      *
@@ -894,9 +956,9 @@ class GoogleMapsService
         return match ($status) {
             'ZERO_RESULTS' => 'No driving route found between the addresses',
             'NOT_FOUND' => 'One or more waypoints could not be geocoded for directions',
-            'MAX_WAYPOINTS_EXCEEDED' => 'Too many waypoints for Google Directions',
+            'MAX_WAYPOINTS_EXCEEDED' => 'Too many waypoints for Google Routes API',
             'OVER_QUERY_LIMIT', 'OVER_DAILY_LIMIT' => 'Google Maps quota exceeded',
-            'REQUEST_DENIED' => 'Google Maps request denied — check API key',
+            'REQUEST_DENIED' => 'Google Maps request denied — check API key / Routes API',
             default => 'Could not build route ('.$status.')',
         };
     }

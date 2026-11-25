@@ -227,7 +227,7 @@ For production set a real `smtp://user:pass@host:587` and `MAIL_FROM`. Locally y
 
 ### Google Maps
 
-В Google Cloud Console включите **Geocoding API**, **Directions API** и **Places API**, создайте API key.
+В Google Cloud Console включите **Geocoding API**, **Routes API** и **Places API** (плюс **Maps Static API**), создайте API key.
 
 Задайте ключ в `backend/.env.local`:
 

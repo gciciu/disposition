@@ -363,7 +363,7 @@ Use the same `APP_USER` in the Mercure systemd unit.
 
 1. Certificates in the panel for both domains.
 2. `MERCURE_PUBLIC_URL=https://delivery.example.com/.well-known/mercure` (admin SPA uses same-origin via nginx).
-3. Google Cloud: Geocoding + Directions + Places → `GOOGLE_MAPS_API_KEY`.
+3. Google Cloud: Geocoding + Routes + Places (+ Maps Static) → `GOOGLE_MAPS_API_KEY`.
 4. SMTP → `MAILER_DSN` / `MAIL_FROM`. Test: admin → Email → Send test email.
 
 ```bash
