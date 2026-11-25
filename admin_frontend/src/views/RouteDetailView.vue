@@ -70,6 +70,34 @@ const title = computed(() => {
 })
 
 const isRouteStarted = computed(() => Boolean(detail.value?.startedAt))
+
+const actualStartTimeText = computed(() => {
+  const routeData = detail.value
+  if (!routeData) {
+    return ''
+  }
+  if (routeData.actualStartTime) {
+    return routeData.actualStartTime
+  }
+  if (!routeData.startedAt) {
+    return ''
+  }
+  const date = new Date(routeData.startedAt)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return date.toLocaleTimeString(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+})
+
+const actualStartLabel = computed(() =>
+  actualStartTimeText.value
+    ? t('deliveryRoutes.actualStartTime', { time: actualStartTimeText.value })
+    : '',
+)
 const isRouteCompleted = computed(() => Boolean(detail.value?.completedAt))
 const canEditAssignment = computed(() => !isRouteStarted.value)
 const routeDelayMinutes = computed(() => Number(detail.value?.delayMinutes) || 0)
@@ -819,12 +847,6 @@ watch(
                   :disabled="saving"
                 />
               </FormField>
-              <FormField
-                :label="t('deliveryRoutes.scheduledStartTime')"
-                :help="t('deliveryRoutes.scheduledStartTimeHelp')"
-              >
-                <FormControl v-model="scheduledStartTime" type="time" />
-              </FormField>
             </template>
             <template v-else>
               <div>
@@ -845,11 +867,25 @@ watch(
                 <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.scheduledDate') }}</div>
                 <div>{{ formatScheduledDateWithWeekday(detail.scheduledDate) }}</div>
               </div>
-              <div>
-                <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.scheduledStartTime') }}</div>
-                <div>{{ detail.scheduledStartTime || '—' }}</div>
-              </div>
             </template>
+            <FormField
+              :label="t('deliveryRoutes.scheduledStartTime')"
+              :help="actualStartLabel ? undefined : t('deliveryRoutes.scheduledStartTimeHelp')"
+            >
+              <div>
+                <FormControl
+                  v-model="scheduledStartTime"
+                  type="time"
+                  :disabled="!canEditAssignment || saving"
+                />
+                <p
+                  v-if="actualStartLabel"
+                  class="mt-1 text-xs text-gray-500 dark:text-slate-400"
+                >
+                  {{ actualStartLabel }}
+                </p>
+              </div>
+            </FormField>
           </div>
         </CardBox>
 

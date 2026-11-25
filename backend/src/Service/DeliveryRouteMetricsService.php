@@ -97,15 +97,25 @@ class DeliveryRouteMetricsService
     /**
      * Recalculate travel legs using the route origin (warehouse or courier start).
      * First order travel = origin → first stop when an origin point is available.
+     *
+     * @return array{
+     *     ok: bool,
+     *     code: 'ok'|'skipped'|'incomplete_coordinates'|'directions_unavailable'|'not_configured',
+     *     error: string|null
+     * }
      */
-    public function rebuild(DeliveryRoute $route): void
+    public function rebuild(DeliveryRoute $route): array
     {
         $orders = $route->getOrders()->toArray();
         $collected = $this->collectMapPoints($route);
         if (null === $collected) {
             $this->clearMetrics($route);
 
-            return;
+            return [
+                'ok' => false,
+                'code' => 'incomplete_coordinates',
+                'error' => 'Travel times cannot be calculated until every stop has valid coordinates',
+            ];
         }
 
         $points = $collected['points'];
@@ -123,13 +133,21 @@ class DeliveryRouteMetricsService
                 $order->setTravelDurationSeconds(null)->setTravelDistanceMeters(null);
             }
 
-            return;
+            return [
+                'ok' => true,
+                'code' => 'skipped',
+                'error' => null,
+            ];
         }
 
         if (!$this->googleMaps->isConfigured()) {
             $route->setMapsUrl($this->googleMaps->buildGoogleMapsUrl($points));
 
-            return;
+            return [
+                'ok' => false,
+                'code' => 'not_configured',
+                'error' => 'GOOGLE_MAPS_API_KEY is not configured',
+            ];
         }
 
         try {
@@ -143,7 +161,11 @@ class DeliveryRouteMetricsService
                 $e->getMessage(),
             ));
 
-            return;
+            return [
+                'ok' => false,
+                'code' => 'directions_unavailable',
+                'error' => $e->getMessage(),
+            ];
         }
 
         $segmentsByToIndex = [];
@@ -162,6 +184,12 @@ class DeliveryRouteMetricsService
             ->setTotalDurationSeconds($built['totalDurationSeconds'])
             ->setTotalDistanceMeters($built['totalDistanceMeters'])
             ->setMapsUrl($built['mapsUrl']);
+
+        return [
+            'ok' => true,
+            'code' => 'ok',
+            'error' => null,
+        ];
     }
 
     private function clearMetrics(DeliveryRoute $route): void

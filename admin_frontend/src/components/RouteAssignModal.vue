@@ -29,7 +29,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'saved'])
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toast = useToast()
 
 const COURIER_LOCATION_ORIGIN = 'courier_location'
@@ -56,6 +56,34 @@ const pendingReplaceForm = ref(null)
 
 const isEdit = computed(() => props.mode === 'edit')
 const isStarted = computed(() => !!props.route?.startedAt)
+
+const actualStartTimeText = computed(() => {
+  const route = props.route
+  if (!route) {
+    return ''
+  }
+  if (route.actualStartTime) {
+    return route.actualStartTime
+  }
+  if (!route.startedAt) {
+    return ''
+  }
+  const date = new Date(route.startedAt)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return date.toLocaleTimeString(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+})
+
+const actualStartLabel = computed(() =>
+  actualStartTimeText.value
+    ? t('deliveryRoutes.actualStartTime', { time: actualStartTimeText.value })
+    : '',
+)
 
 const title = computed(() =>
   isEdit.value ? t('deliveryRoutes.editTitle') : t('deliveryRoutes.importTitle'),
@@ -216,13 +244,18 @@ const buildOriginPayload = () => {
 const showImportError = (e) => {
   const payload = e.response?.data
   const invalidAddresses = Array.isArray(payload?.invalidAddresses) ? payload.invalidAddresses : []
+  const metricsUnavailable = ['directions_unavailable', 'not_configured'].includes(payload?.code)
   const timedOut =
     e.code === 'ECONNABORTED' ||
     /timeout/i.test(String(e.message || '')) ||
     !e.response
-  let message =
-    payload?.error ||
-    (timedOut ? t('deliveryRoutes.importTimeout') : t('deliveryRoutes.importFailed'))
+  let message = metricsUnavailable
+    ? t('deliveryRoutes.importMetricsFailed')
+    : payload?.error ||
+      (timedOut ? t('deliveryRoutes.importTimeout') : t('deliveryRoutes.importFailed'))
+  if (metricsUnavailable && payload?.error) {
+    message = `${message}\n${payload.error}`
+  }
   if (invalidAddresses.length) {
     const details = invalidAddresses
       .map(
@@ -234,7 +267,9 @@ const showImportError = (e) => {
       .join('\n')
     message = `${message}\n${details}`
   }
-  toast.error(message, { timeout: invalidAddresses.length ? 8000 : 4000 })
+  toast.error(message, {
+    timeout: invalidAddresses.length || metricsUnavailable ? 8000 : 4000,
+  })
 }
 
 const submitImport = async (replaceExisting = false) => {
@@ -272,6 +307,9 @@ const submitImport = async (replaceExisting = false) => {
         t('deliveryRoutes.importAddressWarnings', { count: invalidAddresses.length }),
         { timeout: 8000 },
       )
+    }
+    if (data.metricsWarning) {
+      toast.warning(t('deliveryRoutes.importMetricsWarning'), { timeout: 8000 })
     }
     open.value = false
     emit('saved', data.route)
@@ -499,12 +537,23 @@ const clearSelectedFile = () => {
         />
       </FormField>
 
-      <FormField :label="t('deliveryRoutes.scheduledStartTime')" :help="t('deliveryRoutes.scheduledStartTimeHelp')">
-        <FormControl
-          v-model="scheduledStartTime"
-          type="time"
-          :disabled="saving || (isEdit && isStarted)"
-        />
+      <FormField
+        :label="t('deliveryRoutes.scheduledStartTime')"
+        :help="actualStartLabel ? undefined : t('deliveryRoutes.scheduledStartTimeHelp')"
+      >
+        <div>
+          <FormControl
+            v-model="scheduledStartTime"
+            type="time"
+            :disabled="saving || (isEdit && isStarted)"
+          />
+          <p
+            v-if="actualStartLabel"
+            class="mt-1 text-xs text-gray-500 dark:text-slate-400"
+          >
+            {{ actualStartLabel }}
+          </p>
+        </div>
       </FormField>
 
       <FormField :label="t('deliveryRoutes.warehouse')" :help="t('deliveryRoutes.warehouseHelp')">

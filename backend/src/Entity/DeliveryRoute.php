@@ -406,6 +406,7 @@ class DeliveryRoute
      *     originType: string,
      *     warehouse: array{id: int|null, name: string, address: string}|null,
      *     startedAt: string|null,
+     *     actualStartTime: string|null,
      *     completedAt: string|null,
      *     hasCompletionPdf: bool,
      *     allOrdersFinal: bool
@@ -473,6 +474,7 @@ class DeliveryRoute
                 ]
                 : null,
             'startedAt' => $this->startedAt?->format(\DateTimeInterface::ATOM),
+            'actualStartTime' => $this->startedAt?->format('H:i'),
             'completedAt' => $this->completedAt?->format(\DateTimeInterface::ATOM),
             'hasCompletionPdf' => $this->hasCompletionPdf(),
             'allOrdersFinal' => $this->areAllOrdersFinal(),
@@ -516,9 +518,12 @@ class DeliveryRoute
     /**
      * Planned arrival clock times (H:i) keyed by order id.
      *
-     * Before any stop is finished:
+     * Before the driver starts, and before any stop is finished:
      *   arrival(1) = scheduledStartTime + travel_to(1) + arrivalDelay(1)
      *   arrival(n) = arrival(n-1) + unload(n-1) + travel_to(n) + arrivalDelay(n)
+     *
+     * Once the driver starts, the same cascade is anchored to startedAt (the
+     * actual start minute) instead of the planned start time.
      *
      * Route-level delayMinutes is the sum of courier-reported delays (display /
      * admin); per-stop arrivalDelayMinutes is what shifts the cascade.
@@ -534,12 +539,12 @@ class DeliveryRoute
         $orders = array_values($this->orders->toArray());
 
         $cursorSeconds = null;
-        if (null !== $this->scheduledStartTime) {
+        if (null !== $this->startedAt) {
+            $cursorSeconds = ((int) $this->startedAt->format('H')) * 3600
+                + ((int) $this->startedAt->format('i')) * 60;
+        } elseif (null !== $this->scheduledStartTime) {
             $cursorSeconds = ((int) $this->scheduledStartTime->format('H')) * 3600
                 + ((int) $this->scheduledStartTime->format('i')) * 60;
-        } elseif (null !== $this->startedAt) {
-            // Fallback when admin did not set a planned start time.
-            $cursorSeconds = self::secondsFromMidnight($this->startedAt);
         }
 
         foreach ($orders as $order) {

@@ -240,6 +240,9 @@ export function applyRouteListPatch(existing, routePayload) {
     startedAt: Object.prototype.hasOwnProperty.call(routePayload, 'startedAt')
       ? routePayload.startedAt
       : existing.startedAt,
+    actualStartTime: Object.prototype.hasOwnProperty.call(routePayload, 'actualStartTime')
+      ? routePayload.actualStartTime
+      : existing.actualStartTime,
     completedAt: Object.prototype.hasOwnProperty.call(routePayload, 'completedAt')
       ? routePayload.completedAt
       : existing.completedAt,

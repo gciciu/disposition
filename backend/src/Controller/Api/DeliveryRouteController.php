@@ -178,8 +178,20 @@ class DeliveryRouteController extends AbstractController
             $route->getName(),
         ));
 
+        $metricsWarning = null;
         if ($this->googleMaps->isConfigured()) {
-            $this->metrics->rebuild($route);
+            $metricsResult = $this->metrics->rebuild($route);
+            if (!$metricsResult['ok'] && 'incomplete_coordinates' !== $metricsResult['code']) {
+                return $this->json([
+                    'error' => 'Could not calculate travel times between stops: '
+                        .($metricsResult['error'] ?? 'Google Directions API is unavailable'),
+                    'code' => $metricsResult['code'],
+                    'invalidAddresses' => $invalidAddresses,
+                ], Response::HTTP_BAD_GATEWAY);
+            }
+            if (!$metricsResult['ok']) {
+                $metricsWarning = $metricsResult['error'];
+            }
         }
 
         $connection = $this->em->getConnection();
@@ -207,6 +219,7 @@ class DeliveryRouteController extends AbstractController
         return $this->json([
             'route' => $route->toArray(),
             'invalidAddresses' => $invalidAddresses,
+            'metricsWarning' => $metricsWarning,
         ], Response::HTTP_CREATED);
     }
 

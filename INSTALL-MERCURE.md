@@ -106,6 +106,21 @@ location /.well-known/mercure {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 24h;
+
+    # Belt-and-suspenders: some Mercure builds omit CORS even with cors_origins *.
+    # EventSource does not send credentials, so * is fine.
+    add_header Access-Control-Allow-Origin * always;
+    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin *;
+        add_header Access-Control-Allow-Methods "GET, OPTIONS";
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type";
+        add_header Access-Control-Max-Age 86400;
+        add_header Content-Length 0;
+        return 204;
+    }
 }
 ```
 
