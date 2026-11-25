@@ -136,7 +136,7 @@
     "addressSaveFailed": "Could not save the address",
     "importAddressWarnings": "{count} address(es) need manual confirmation",
     "importMetricsWarning": "Travel times could not be calculated — confirm every stop address first",
-    "importMetricsFailed": "Could not calculate travel times between stops. Check Google Directions API access and try again.",
+    "importMetricsFailed": "Could not calculate travel times between stops. Check Google Routes API access and try again.",
     "loadFailed": "Could not load routes",
     "loadDetailFailed": "Could not load route",
     "loading": "Loading…",

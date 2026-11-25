@@ -136,7 +136,7 @@
     "addressSaveFailed": "Adresse konnte nicht gespeichert werden",
     "importAddressWarnings": "{count} Adresse(n) müssen manuell bestätigt werden",
     "importMetricsWarning": "Fahrzeiten konnten nicht berechnet werden — bitte zuerst alle Stopp-Adressen bestätigen",
-    "importMetricsFailed": "Fahrzeiten zwischen den Stopps konnten nicht berechnet werden. Bitte Google Directions API prüfen und erneut versuchen.",
+    "importMetricsFailed": "Fahrzeiten zwischen den Stopps konnten nicht berechnet werden. Bitte Google Routes API prüfen und erneut versuchen.",
     "loadFailed": "Routen konnten nicht geladen werden",
     "loadDetailFailed": "Route konnte nicht geladen werden",
     "loading": "Laden…",

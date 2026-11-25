@@ -9,6 +9,8 @@ class GoogleMapsService
 {
     private const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
     private const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
+    /** @deprecated Prefer Routes API; kept as fallback when Routes is not enabled for the key. */
+    private const DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
     private const STATIC_MAP_URL = 'https://maps.googleapis.com/maps/api/staticmap';
     private const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
     private const PLACE_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
@@ -348,10 +350,10 @@ class GoogleMapsService
             'origin' => $this->pointAsRoutesWaypoint($points[0]),
             'destination' => $this->pointAsRoutesWaypoint($points[\count($points) - 1]),
             'travelMode' => 'DRIVE',
-            // Traffic-aware ETAs (closest to former Directions departure_time=now).
+            // Traffic-aware ETAs. Omit departureTime — API defaults to request time;
+            // sending "now" often fails with "Timestamp must be set to a future time."
             'routingPreference' => 'TRAFFIC_AWARE_OPTIMAL',
             'trafficModel' => 'BEST_GUESS',
-            'departureTime' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
             'languageCode' => 'de',
             'regionCode' => 'DE',
             'units' => 'METRIC',
@@ -382,6 +384,10 @@ class GoogleMapsService
         $httpStatus = $response->getStatusCode();
 
         if ($httpStatus >= 400 || isset($data['error'])) {
+            // Keys that only have legacy Directions enabled still work locally/prod-mixed.
+            if ($this->isRoutesPermissionDenied($data, $httpStatus)) {
+                return $this->requestTruckRouteChunkViaDirections($points);
+            }
             throw new \RuntimeException($this->routesApiErrorMessage($data, $httpStatus));
         }
 
@@ -459,6 +465,109 @@ class GoogleMapsService
         }
 
         return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function isRoutesPermissionDenied(array $data, int $httpStatus): bool
+    {
+        if (!\in_array($httpStatus, [401, 403], true) && !isset($data['error'])) {
+            return false;
+        }
+        $error = $data['error'] ?? null;
+        $status = \is_array($error) && isset($error['status']) && \is_string($error['status'])
+            ? $error['status']
+            : '';
+
+        return \in_array($status, ['PERMISSION_DENIED', 'UNAUTHENTICATED'], true)
+            || 403 === $httpStatus
+            || 401 === $httpStatus;
+    }
+
+    /**
+     * Legacy Directions API fallback when Routes API is not enabled for the key.
+     *
+     * @param list<array{formattedAddress: string, lat: float, lng: float, placeId?: string|null}> $points
+     *
+     * @return array{
+     *     segments: list<array<string, mixed>>,
+     *     overviewPolyline: string|null
+     * }
+     */
+    private function requestTruckRouteChunkViaDirections(array $points): array
+    {
+        $waypoints = [];
+        for ($i = 1, $last = \count($points) - 1; $i < $last; ++$i) {
+            $waypoints[] = sprintf('%F,%F', $points[$i]['lat'], $points[$i]['lng']);
+        }
+
+        $query = [
+            'origin' => sprintf('%F,%F', $points[0]['lat'], $points[0]['lng']),
+            'destination' => sprintf(
+                '%F,%F',
+                $points[\count($points) - 1]['lat'],
+                $points[\count($points) - 1]['lng'],
+            ),
+            'mode' => 'driving',
+            'avoid' => 'ferries',
+            'units' => 'metric',
+            'language' => 'de',
+            'region' => 'de',
+            'departure_time' => 'now',
+            'traffic_model' => 'best_guess',
+            'key' => $this->apiKey,
+        ];
+        if ($waypoints) {
+            $query['waypoints'] = implode('|', $waypoints);
+        }
+
+        $response = $this->httpClient->request('GET', self::DIRECTIONS_URL, [
+            'query' => $query,
+            'timeout' => 20,
+            'max_duration' => 45,
+        ]);
+        $data = $response->toArray(false);
+        $status = $data['status'] ?? 'UNKNOWN_ERROR';
+
+        if ('OK' !== $status || empty($data['routes'][0]['legs'])) {
+            $detail = isset($data['error_message']) && \is_string($data['error_message']) && '' !== $data['error_message']
+                ? $this->directionsErrorMessage($status).' ('.$data['error_message'].')'
+                : $this->directionsErrorMessage($status);
+            throw new \RuntimeException($detail);
+        }
+
+        $legs = $data['routes'][0]['legs'];
+        $segments = [];
+        foreach ($legs as $index => $leg) {
+            if (!\is_array($leg)) {
+                continue;
+            }
+            $durationSeconds = (int) ($leg['duration_in_traffic']['value'] ?? $leg['duration']['value'] ?? 0);
+            $distanceMeters = (int) ($leg['distance']['value'] ?? 0);
+            $fromAddress = $points[$index]['formattedAddress'] ?? '';
+            $toAddress = $points[$index + 1]['formattedAddress'] ?? '';
+            $segments[] = [
+                'fromIndex' => $index,
+                'toIndex' => $index + 1,
+                'fromAddress' => AddressFormatter::withoutCountry($fromAddress) ?? $fromAddress,
+                'toAddress' => AddressFormatter::withoutCountry($toAddress) ?? $toAddress,
+                'durationSeconds' => $durationSeconds,
+                'durationText' => $this->formatDuration($durationSeconds),
+                'distanceMeters' => $distanceMeters,
+                'distanceText' => $this->formatDistance($distanceMeters),
+            ];
+        }
+
+        $overviewPolyline = $data['routes'][0]['overview_polyline']['points'] ?? null;
+        if (!\is_string($overviewPolyline) || '' === $overviewPolyline) {
+            $overviewPolyline = null;
+        }
+
+        return [
+            'segments' => $segments,
+            'overviewPolyline' => $overviewPolyline,
+        ];
     }
 
     /**
