@@ -612,10 +612,10 @@ class DeliveryRoute
         $minutes = intdiv($seconds % 3600, 60);
 
         if ($hours > 0) {
-            return sprintf('%dh %dm', $hours, $minutes);
+            return sprintf('%dh %d min', $hours, $minutes);
         }
 
-        return sprintf('%dm', max(1, $minutes));
+        return sprintf('%d min', max(1, $minutes));
     }
 
     public static function formatDistance(int $meters): string
