@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Pull latest code, run DB migrations, rebuild frontends (production).
-# Usage (on the server):
-#   cd /var/www/delivery && bash update-prod.sh
+#
+# Usage (on the server, preferably as the app owner — not with sudo):
+#   cd /path/to/delivery && bash update-prod.sh
+#
+# If you accidentally run as root, the script re-execs as the directory owner.
+#
 # Optional:
-#   bash update-prod.sh --skip-npm     # backend only
-#   bash update-prod.sh --skip-mercure # do not restart Mercure
+#   bash update-prod.sh --skip-npm
+#   bash update-prod.sh --skip-mercure
+#   APP_OWNER=ciciu bash update-prod.sh   # force deploy user
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +21,7 @@ for arg in "$@"; do
     --skip-npm) SKIP_NPM=1 ;;
     --skip-mercure) SKIP_MERCURE=1 ;;
     -h|--help)
-      sed -n '2,8p' "$0"
+      sed -n '2,14p' "$0"
       exit 0
       ;;
     *)
@@ -27,6 +32,101 @@ for arg in "$@"; do
 done
 
 log() { printf '\n=== %s ===\n' "$*"; }
+
+file_owner() {
+  stat -c '%U' "$1" 2>/dev/null || stat -f '%Su' "$1"
+}
+
+file_group() {
+  stat -c '%G' "$1" 2>/dev/null || stat -f '%Sg' "$1"
+}
+
+# Owner of the project tree (or APP_OWNER override). All deploy writes run as this user.
+# Prefer a non-root owner: .git is often left root-owned after a mistaken "sudo git".
+detect_owner() {
+  if [[ -n "${APP_OWNER:-}" ]]; then
+    printf '%s' "$APP_OWNER"
+    return
+  fi
+  local path u
+  for path in "$ROOT" "$ROOT/backend" "$ROOT/admin_frontend" "$ROOT/.git"; do
+    [[ -e "$path" ]] || continue
+    u="$(file_owner "$path")"
+    if [[ -n "$u" && "$u" != "root" ]]; then
+      printf '%s' "$u"
+      return
+    fi
+  done
+  if [[ $EUID -ne 0 ]]; then
+    id -un
+    return
+  fi
+  printf 'root'
+}
+
+detect_group() {
+  if [[ -n "${APP_GROUP:-}" ]]; then
+    printf '%s' "$APP_GROUP"
+    return
+  fi
+  local path g owner
+  owner="$(detect_owner)"
+  for path in "$ROOT" "$ROOT/backend" "$ROOT/admin_frontend" "$ROOT/.git"; do
+    [[ -e "$path" ]] || continue
+    if [[ "$(file_owner "$path")" == "$owner" ]]; then
+      g="$(file_group "$path")"
+      if [[ -n "$g" ]]; then
+        printf '%s' "$g"
+        return
+      fi
+    fi
+  done
+  id -gn
+}
+
+can_sudo() {
+  sudo -n true 2>/dev/null
+}
+
+run_sudo() {
+  if [[ $EUID -eq 0 ]]; then
+    "$@"
+  elif can_sudo; then
+    sudo "$@"
+  else
+    echo "Need sudo for: $*" >&2
+    echo "Run once: sudo chown -R \"$(detect_owner):$(detect_group)\" \"$ROOT\"" >&2
+    echo "Then re-run without sudo: bash update-prod.sh" >&2
+    exit 1
+  fi
+}
+
+OWNER="$(detect_owner)"
+GROUP="$(detect_group)"
+CURRENT="$(id -un)"
+
+if [[ -z "$OWNER" || "$OWNER" == "root" ]]; then
+  echo "Project looks owned by root. Fix once, then re-run as the app user:" >&2
+  echo "  sudo chown -R YOUR_USER:YOUR_USER \"$ROOT\"" >&2
+  echo "  cd \"$ROOT\" && bash update-prod.sh" >&2
+  exit 1
+fi
+
+# Never mutate the tree as root — that creates the next permission failure.
+if [[ $EUID -eq 0 ]]; then
+  echo "Running as root — re-executing as $OWNER (avoids root-owned files)."
+  exec sudo -u "$OWNER" -H bash "$ROOT/update-prod.sh" "$@"
+fi
+
+if [[ "$CURRENT" != "$OWNER" ]]; then
+  if id "$OWNER" >/dev/null 2>&1 && can_sudo; then
+    echo "Current user is $CURRENT, project owner is $OWNER — re-executing as $OWNER."
+    exec sudo -u "$OWNER" -H bash "$ROOT/update-prod.sh" "$@"
+  fi
+  echo "Run this script as \"$OWNER\" (project owner), not as \"$CURRENT\"." >&2
+  echo "  sudo -u $OWNER -H bash $ROOT/update-prod.sh" >&2
+  exit 1
+fi
 
 cd "$ROOT"
 
@@ -40,16 +140,44 @@ if [[ ! -f backend/bin/console ]]; then
   exit 1
 fi
 
-if [[ ! -w .git ]] || [[ -e .git/FETCH_HEAD && ! -w .git/FETCH_HEAD ]]; then
-  echo "Permission denied on .git (cannot write FETCH_HEAD)." >&2
-  echo "Fix ownership, then re-run as that user (do not use sudo for git pull):" >&2
-  echo "  sudo chown -R \"\$(whoami):\$(whoami)\" \"$ROOT/.git\"" >&2
-  echo "If a previous deploy ran as root, also fix the tree:" >&2
-  echo "  sudo chown -R \"\$(whoami):\$(whoami)\" \"$ROOT\"" >&2
+log "0. Fix ownership (root leftovers from previous sudo deploys)"
+# Only reclaim paths that must be writable during deploy / by PHP.
+PATHS_TO_OWN=(
+  "$ROOT/.git"
+  "$ROOT/backend/var"
+  "$ROOT/backend/vendor"
+  "$ROOT/backend/public"
+  "$ROOT/admin_frontend/node_modules"
+  "$ROOT/admin_frontend/dist"
+  "$ROOT/driver_frontend/node_modules"
+  "$ROOT/driver_frontend/dist"
+)
+for path in "${PATHS_TO_OWN[@]}"; do
+  [[ -e "$path" ]] || continue
+  # Skip if already fully owned by us (cheap check on the directory itself).
+  path_owner="$(file_owner "$path")"
+  if [[ "$path_owner" != "$OWNER" ]] || [[ ! -w "$path" ]]; then
+    echo "chown $OWNER:$GROUP → $path"
+    run_sudo chown -R "$OWNER:$GROUP" "$path"
+  elif find "$path" -user root -print -quit 2>/dev/null | grep -q .; then
+    echo "chown $OWNER:$GROUP → $path (root-owned files inside)"
+    run_sudo chown -R "$OWNER:$GROUP" "$path"
+  fi
+done
+
+# PHP-FPM often runs as www-data; keep var group-writable when that group exists.
+if getent group www-data >/dev/null 2>&1; then
+  mkdir -p "$ROOT/backend/var"
+  run_sudo chown -R "$OWNER:www-data" "$ROOT/backend/var"
+  run_sudo chmod -R ug+rwX "$ROOT/backend/var"
+fi
+
+if [[ ! -w .git ]]; then
+  echo "Still cannot write to .git after chown. Aborting." >&2
   exit 1
 fi
 
-log "1. Git pull (ff-only)"
+log "1. Git pull (ff-only) as $OWNER"
 git fetch --prune origin
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 BEFORE="$(git rev-parse HEAD)"
@@ -69,6 +197,7 @@ export APP_DEBUG=0
 
 log "2. Composer install"
 cd "$ROOT/backend"
+mkdir -p var config/jwt
 # Skip auto-scripts: we clear/warmup cache explicitly for prod below.
 composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
@@ -93,14 +222,26 @@ else
   log "5–6. Skipping frontend builds (--skip-npm)"
 fi
 
+log "7. Permissions after build"
+mkdir -p "$ROOT/backend/var"
+if getent group www-data >/dev/null 2>&1; then
+  run_sudo chown -R "$OWNER:www-data" "$ROOT/backend/var"
+else
+  run_sudo chown -R "$OWNER:$GROUP" "$ROOT/backend/var"
+fi
+run_sudo chmod -R ug+rwX "$ROOT/backend/var"
+# Frontends must stay readable by the web server.
+[[ -d "$ROOT/admin_frontend/dist" ]] && run_sudo chmod -R a+rX "$ROOT/admin_frontend/dist"
+[[ -d "$ROOT/driver_frontend/dist" ]] && run_sudo chmod -R a+rX "$ROOT/driver_frontend/dist"
+
 if [[ "$SKIP_MERCURE" -eq 0 ]]; then
-  log "7. Mercure"
-  if [[ -x "$ROOT/scripts/download-mercure.sh" ]]; then
+  log "8. Mercure"
+  if [[ -f "$ROOT/scripts/download-mercure.sh" ]]; then
     bash "$ROOT/scripts/download-mercure.sh" || echo "Warning: download-mercure.sh failed (continuing)" >&2
   fi
   if systemctl list-unit-files delivery-mercure.service >/dev/null 2>&1; then
     if systemctl is-active --quiet delivery-mercure.service; then
-      sudo systemctl restart delivery-mercure.service
+      run_sudo systemctl restart delivery-mercure.service
       echo "delivery-mercure.service restarted"
     else
       echo "delivery-mercure.service is installed but not active — skip restart"
@@ -109,8 +250,8 @@ if [[ "$SKIP_MERCURE" -eq 0 ]]; then
     echo "No delivery-mercure.service — skip restart"
   fi
 else
-  log "7. Skipping Mercure (--skip-mercure)"
+  log "8. Skipping Mercure (--skip-mercure)"
 fi
 
 log "Done"
-echo "Deploy finished at $(date -Is) ($BRANCH @ $(git -C "$ROOT" rev-parse --short HEAD))"
+echo "Deploy finished at $(date -Is) as $OWNER ($BRANCH @ $(git -C "$ROOT" rev-parse --short HEAD))"
