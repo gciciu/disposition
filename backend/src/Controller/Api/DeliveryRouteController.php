@@ -5,10 +5,12 @@ namespace App\Controller\Api;
 use App\Entity\Courier;
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
+use App\Enum\ReturnDestination;
 use App\Enum\RouteOriginType;
 use App\Repository\CourierRepository;
 use App\Repository\DeliveryRouteRepository;
 use App\Repository\WarehouseRepository;
+use App\Service\DeliveryAnnouncementMailer;
 use App\Service\DeliveryConfirmationPdfService;
 use App\Service\DeliveryProofService;
 use App\Service\DeliveryRouteMetricsService;
@@ -27,6 +29,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 
@@ -42,6 +45,7 @@ class DeliveryRouteController extends AbstractController
         private readonly RouteCodeNameBuilder $routeCodeNameBuilder,
         private readonly RouteCompletionPdfService $completionPdf,
         private readonly DeliveryConfirmationPdfService $confirmationPdf,
+        private readonly DeliveryAnnouncementMailer $announcementMailer,
         private readonly RouteFinishService $routeFinish,
         private readonly GoogleMapsService $googleMaps,
         private readonly DeliveryRouteMetricsService $metrics,
@@ -376,6 +380,50 @@ class DeliveryRouteController extends AbstractController
         return $response;
     }
 
+    /**
+     * Send Lieferankündigung (day-before delivery announcement) for one stop.
+     */
+    #[Route(
+        '/{routeId}/orders/{orderId}/send-announcement',
+        name: 'api_admin_order_send_announcement',
+        methods: ['POST'],
+        requirements: ['routeId' => '\d+', 'orderId' => '\d+'],
+    )]
+    public function sendAnnouncement(int $routeId, int $orderId): JsonResponse
+    {
+        $route = $this->routes->find($routeId);
+        if (!$route instanceof DeliveryRoute) {
+            return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $order = null;
+        foreach ($route->getOrders() as $candidate) {
+            if ($candidate->getId() === $orderId) {
+                $order = $candidate;
+                break;
+            }
+        }
+
+        if (!$order instanceof DeliveryOrder) {
+            return $this->json(['error' => 'Order not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            $result = $this->announcementMailer->sendForOrder($order, true);
+        } catch (HttpExceptionInterface $e) {
+            return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
+        }
+
+        $arrivalTime = $route->computeArrivalTimes()[$order->getId()] ?? null;
+
+        return $this->json([
+            'order' => $order->toArray($arrivalTime),
+            'route' => $route->toArray(),
+            'to' => $result['to'] ?? null,
+            'discarded' => $result['discarded'] ?? false,
+        ]);
+    }
+
     #[Route('/{id}', name: 'api_admin_routes_update', methods: ['PUT'], requirements: ['id' => '\d+'])]
     public function update(int $id, Request $request): JsonResponse
     {
@@ -633,12 +681,57 @@ class DeliveryRouteController extends AbstractController
                 }
                 $addressChanged = true;
             }
+
+            if (\array_key_exists('returnDestination', $item)) {
+                $destinationResult = $this->applyReturnDestination($order, $item['returnDestination'], (string) $index);
+                if ($destinationResult instanceof JsonResponse) {
+                    return $destinationResult;
+                }
+            }
         }
 
         return [
             'addressChanged' => $addressChanged,
             'commentUpdatedOrders' => $commentUpdatedOrders,
         ];
+    }
+
+    private function applyReturnDestination(
+        DeliveryOrder $order,
+        mixed $value,
+        string $index,
+    ): ?JsonResponse {
+        if (null === $value || '' === $value) {
+            $order->setReturnDestination(null);
+
+            return null;
+        }
+
+        if (!\is_string($value)) {
+            return $this->json([
+                'error' => sprintf('orders[%s].returnDestination must be a string or null', $index),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $destination = ReturnDestination::tryFrom($value);
+        if (null === $destination) {
+            $allowed = array_map(
+                static fn (ReturnDestination $case): string => $case->value,
+                ReturnDestination::cases(),
+            );
+
+            return $this->json([
+                'error' => sprintf(
+                    'orders[%s].returnDestination must be one of: %s',
+                    $index,
+                    implode(', ', $allowed),
+                ),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $order->setReturnDestination($destination);
+
+        return null;
     }
 
     /**

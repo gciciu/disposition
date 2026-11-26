@@ -11,6 +11,7 @@ use App\Enum\DeliveryProofType;
 use App\Enum\RouteOriginType;
 use App\Repository\DeliveryRouteRepository;
 use App\Service\AppSettingsService;
+use App\Service\DeliveryAnnouncementMailer;
 use App\Service\DeliveryConfirmationPdfService;
 use App\Service\DeliveryProofService;
 use App\Service\DeliveryRouteMetricsService;
@@ -39,6 +40,7 @@ class DriverRouteController extends AbstractController
         private readonly DeliveryRouteRepository $routes,
         private readonly DeliveryProofService $proofService,
         private readonly DeliveryConfirmationPdfService $confirmationPdf,
+        private readonly DeliveryAnnouncementMailer $announcementMailer,
         private readonly EmailService $emailService,
         private readonly AppSettingsService $settings,
         private readonly DeliveryRouteMetricsService $metrics,
@@ -406,6 +408,39 @@ class DriverRouteController extends AbstractController
             $this->finishRouteIfAllStopsDone($updated->getRoute());
 
             return $this->json($this->orderMutationResponse($updated));
+        } catch (HttpExceptionInterface $e) {
+            return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
+        }
+    }
+
+    /**
+     * Send Lieferankündigung for one stop (manual, from driver app).
+     */
+    #[Route(
+        '/{routeId}/orders/{orderId}/send-announcement',
+        name: 'api_driver_order_send_announcement',
+        methods: ['POST'],
+        requirements: ['routeId' => '\d+', 'orderId' => '\d+'],
+    )]
+    public function sendAnnouncement(
+        int $routeId,
+        int $orderId,
+        #[CurrentUser] User $user,
+    ): JsonResponse {
+        try {
+            $courier = $this->requireCourier($user);
+            if ($courier instanceof JsonResponse) {
+                return $courier;
+            }
+
+            $order = $this->findAssignedOrder($routeId, $orderId, $courier);
+            if ($order instanceof JsonResponse) {
+                return $order;
+            }
+
+            $this->announcementMailer->sendForOrder($order, true);
+
+            return $this->json($this->orderMutationResponse($order));
         } catch (HttpExceptionInterface $e) {
             return $this->json(['error' => $e->getMessage()], $e->getStatusCode());
         }

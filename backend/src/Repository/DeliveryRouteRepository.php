@@ -93,6 +93,28 @@ class DeliveryRouteRepository extends ServiceEntityRepository
     }
 
     /**
+     * Routes scheduled for a calendar day (with courier, user, and orders eagerly loaded).
+     *
+     * @return list<DeliveryRoute>
+     */
+    public function findByScheduledDate(\DateTimeImmutable $scheduledDate): array
+    {
+        return $this->createQueryBuilder('r')
+            ->leftJoin('r.courier', 'c')
+            ->addSelect('c')
+            ->leftJoin('c.user', 'u')
+            ->addSelect('u')
+            ->leftJoin('r.orders', 'o')
+            ->addSelect('o')
+            ->andWhere('r.scheduledDate = :scheduledDate')
+            ->setParameter('scheduledDate', $scheduledDate)
+            ->orderBy('r.id', 'ASC')
+            ->addOrderBy('o.position', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * @return list<DeliveryRoute>
      */
     public function findByCourierAndDateRange(

@@ -415,6 +415,7 @@ export type RouteOrder = {
   deliveryMethod?: DeliveryMethod | null;
   neighborName?: string | null;
   confirmationEmailSentAt?: string | null;
+  announcementEmailSentAt?: string | null;
   hasProof: boolean;
   courierComment?: string | null;
 };
@@ -524,6 +525,16 @@ export function adjustArrivalRequest(routeId: number, orderId: number, arrivalTi
     {
       method: "POST",
       body: JSON.stringify({ arrivalTime }),
+    },
+  );
+}
+
+export function sendAnnouncementRequest(routeId: number, orderId: number) {
+  return request<{ order: RouteOrder; route: RouteDetail }>(
+    `/api/driver/routes/${routeId}/orders/${orderId}/send-announcement`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
     },
   );
 }

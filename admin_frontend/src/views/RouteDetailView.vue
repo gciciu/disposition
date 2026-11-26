@@ -57,6 +57,8 @@ const commentsModalOpen = ref(false)
 const commentsOrder = ref(null)
 const addressDrafts = ref({})
 const savingAddressId = ref(null)
+const sendingAnnouncementId = ref(null)
+const savingReturnDestinationId = ref(null)
 
 const UNLOAD_MIN = 1
 const UNLOAD_MAX = 60
@@ -224,6 +226,54 @@ const onCommentsSaved = (routeData) => {
 
 const isOrderFinished = (order) =>
   order?.status === 'delivered' || order?.status === 'refused'
+
+const needsReturnDestination = (order) =>
+  Boolean(order?.isExchange) || order?.status === 'refused'
+
+const returnDestinationOptions = computed(() => [
+  { id: null, label: t('deliveryRoutes.returnDestinationUnset') },
+  { id: 'warehouse_return', label: t('deliveryRoutes.returnDestinationWarehouseReturn') },
+  { id: 'warehouse_shelf', label: t('deliveryRoutes.returnDestinationWarehouseShelf') },
+  { id: 'container', label: t('deliveryRoutes.returnDestinationContainer') },
+  { id: 'office', label: t('deliveryRoutes.returnDestinationOffice') },
+])
+
+const returnDestinationOptionOf = (order) => {
+  const value = order?.returnDestination ?? null
+  return (
+    returnDestinationOptions.value.find((option) => option.id === value) ??
+    returnDestinationOptions.value[0]
+  )
+}
+
+const saveReturnDestination = async (order, option) => {
+  if (!detail.value?.id || !order?.id || savingReturnDestinationId.value != null) {
+    return
+  }
+
+  const nextValue = option?.id ?? null
+  if (nextValue === (order.returnDestination ?? null)) {
+    return
+  }
+
+  savingReturnDestinationId.value = order.id
+  try {
+    const { data } = await api.put(`/api/admin/routes/${detail.value.id}`, {
+      orders: [{ id: order.id, returnDestination: nextValue }],
+    })
+    detail.value = data.route
+    syncSelectedCourier()
+    syncSelectedWarehouse()
+    syncScheduleFields()
+    syncUnloadDrafts()
+    syncAddressDrafts()
+    toast.success(t('deliveryRoutes.returnDestinationSaved'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.returnDestinationSaveFailed'))
+  } finally {
+    savingReturnDestinationId.value = null
+  }
+}
 
 const applyUnload = async (order) => {
   if (
@@ -635,6 +685,47 @@ const openOrderDetail = (order) => {
   })
 }
 
+const announcementEmailTitle = (order) => {
+  if (!order?.email) {
+    return t('deliveryRoutes.emailNotifyMissing')
+  }
+  if (order.announcementEmailSentAt) {
+    return t('deliveryRoutes.emailNotifySent')
+  }
+  return t('deliveryRoutes.emailNotifyTitle', { email: order.email })
+}
+
+const sendAnnouncementEmail = async (order) => {
+  if (!detail.value?.id || !order?.id || !order.email || order.announcementEmailSentAt) {
+    return
+  }
+  if (sendingAnnouncementId.value === order.id) {
+    return
+  }
+
+  sendingAnnouncementId.value = order.id
+  try {
+    const { data } = await api.post(
+      `/api/admin/routes/${detail.value.id}/orders/${order.id}/send-announcement`,
+    )
+    if (data?.route) {
+      applyRouteData(data.route, { preserveDirty: true })
+    } else if (data?.order && detail.value?.orders) {
+      const orderIndex = detail.value.orders.findIndex((item) => sameId(item.id, data.order.id))
+      if (orderIndex !== -1) {
+        const nextOrders = [...detail.value.orders]
+        nextOrders[orderIndex] = { ...nextOrders[orderIndex], ...data.order }
+        detail.value = { ...detail.value, orders: nextOrders }
+      }
+    }
+    toast.success(t('deliveryRoutes.emailNotifySentSuccess'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.emailNotifySendFailed'))
+  } finally {
+    sendingAnnouncementId.value = null
+  }
+}
+
 const downloadCompletionPdf = async () => {
   if (!detail.value?.id || downloadingPdf.value) {
     return
@@ -961,6 +1052,21 @@ watch(
                     </span>
                   </div>
                   <div
+                    v-if="needsReturnDestination(order)"
+                    class="mt-2 max-w-xs"
+                    @click.stop
+                  >
+                    <div class="mb-1 text-xs font-semibold text-gray-500 uppercase dark:text-slate-400">
+                      {{ t('deliveryRoutes.returnDestination') }}
+                    </div>
+                    <FormControl
+                      :model-value="returnDestinationOptionOf(order)"
+                      :options="returnDestinationOptions"
+                      :disabled="savingReturnDestinationId === order.id"
+                      @update:model-value="saveReturnDestination(order, $event)"
+                    />
+                  </div>
+                  <div
                     v-if="order.addressValid"
                     class="mt-1 flex items-center gap-1.5 text-sm"
                   >
@@ -1155,22 +1261,21 @@ watch(
                   <button
                     type="button"
                     class="inline-flex items-center justify-center rounded p-1.5 transition-colors"
-                    :class="
-                      order.email
-                        ? 'text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-slate-700'
-                        : 'cursor-default text-gray-300 dark:text-slate-600'
+                    :class="{
+                      'cursor-default text-gray-300 dark:text-slate-600': !order.email,
+                      'text-green-600 dark:text-green-400':
+                        order.email && order.announcementEmailSentAt,
+                      'text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-slate-700':
+                        order.email && !order.announcementEmailSentAt,
+                    }"
+                    :disabled="
+                      !order.email ||
+                      Boolean(order.announcementEmailSentAt) ||
+                      sendingAnnouncementId === order.id
                     "
-                    :disabled="!order.email"
-                    :title="
-                      order.email
-                        ? t('deliveryRoutes.emailNotifyTitle', { email: order.email })
-                        : t('deliveryRoutes.emailNotifyMissing')
-                    "
-                    :aria-label="
-                      order.email
-                        ? t('deliveryRoutes.emailNotifyTitle', { email: order.email })
-                        : t('deliveryRoutes.emailNotifyMissing')
-                    "
+                    :title="announcementEmailTitle(order)"
+                    :aria-label="announcementEmailTitle(order)"
+                    @click="sendAnnouncementEmail(order)"
                   >
                     <BaseIcon :path="mdiEmailOutline" size="20" />
                   </button>

@@ -5,6 +5,7 @@ namespace App\Entity;
 use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryOrderStatus;
 use App\Enum\DeliveryProofType;
+use App\Enum\ReturnDestination;
 use App\Repository\DeliveryOrderRepository;
 use App\Util\AddressFormatter;
 use Doctrine\ORM\Mapping as ORM;
@@ -147,6 +148,10 @@ class DeliveryOrder
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $confirmationEmailSentAt = null;
 
+    /** Set when Lieferankündigung (day-before delivery announcement) email was sent. */
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $announcementEmailSentAt = null;
+
     #[ORM\Column(length: 512, nullable: true)]
     private ?string $proofPath = null;
 
@@ -156,6 +161,10 @@ class DeliveryOrder
     /** Free-text note entered by the courier at the stop. */
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $courierComment = null;
+
+    /** Warehouse disposition for returned / exchanged goods (Retourschein). */
+    #[ORM\Column(length: 32, nullable: true, enumType: ReturnDestination::class)]
+    private ?ReturnDestination $returnDestination = null;
 
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
@@ -694,6 +703,18 @@ class DeliveryOrder
         return $this;
     }
 
+    public function getAnnouncementEmailSentAt(): ?\DateTimeImmutable
+    {
+        return $this->announcementEmailSentAt;
+    }
+
+    public function setAnnouncementEmailSentAt(?\DateTimeImmutable $announcementEmailSentAt): static
+    {
+        $this->announcementEmailSentAt = $announcementEmailSentAt;
+
+        return $this;
+    }
+
     public function getProofPath(): ?string
     {
         return $this->proofPath;
@@ -743,6 +764,18 @@ class DeliveryOrder
         }
 
         $this->courierComment = $trimmed;
+
+        return $this;
+    }
+
+    public function getReturnDestination(): ?ReturnDestination
+    {
+        return $this->returnDestination;
+    }
+
+    public function setReturnDestination(?ReturnDestination $returnDestination): static
+    {
+        $this->returnDestination = $returnDestination;
 
         return $this;
     }
@@ -799,8 +832,10 @@ class DeliveryOrder
      *     deliveryMethod: string|null,
      *     neighborName: string|null,
      *     confirmationEmailSentAt: string|null,
+     *     announcementEmailSentAt: string|null,
      *     hasProof: bool,
      *     courierComment: string|null,
+     *     returnDestination: string|null,
      *     createdAt: string
      * }
      */
@@ -841,8 +876,10 @@ class DeliveryOrder
             'deliveryMethod' => $this->deliveryMethod?->value,
             'neighborName' => $this->neighborName,
             'confirmationEmailSentAt' => $this->confirmationEmailSentAt?->format(\DateTimeInterface::ATOM),
+            'announcementEmailSentAt' => $this->announcementEmailSentAt?->format(\DateTimeInterface::ATOM),
             'hasProof' => $this->hasProof(),
             'courierComment' => $this->courierComment,
+            'returnDestination' => $this->returnDestination?->value,
             'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
         ];
     }

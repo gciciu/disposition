@@ -9,6 +9,7 @@ import {
   fetchMyRoutesRequest,
   finishRouteRequest,
   refuseOrderRequest,
+  sendAnnouncementRequest,
   startRouteRequest,
   type DeliveryMethod,
   type ProofType,
@@ -62,6 +63,7 @@ const showFinishConfirm = ref(false);
 const arrivalEditOrder = ref<RouteOrder | null>(null);
 const continueRouteTarget = ref<RouteListItem | null>(null);
 const photoInput = ref<HTMLInputElement | null>(null);
+const sendingAnnouncementId = ref<number | null>(null);
 
 const canPartialDelivery = computed(() => {
   const order = confirmOrder.value;
@@ -694,6 +696,42 @@ const openStopMaps = async (order: RouteOrder, event?: Event) => {
   }
 };
 
+const hasCustomerEmail = (order: RouteOrder) => Boolean(order.email?.trim());
+const announcementSent = (order: RouteOrder) => Boolean(order.announcementEmailSentAt);
+const mailButtonTitle = (order: RouteOrder) => {
+  if (!hasCustomerEmail(order)) {
+    return t("routes.announcementMissingEmail");
+  }
+  if (announcementSent(order)) {
+    return t("routes.announcementSent");
+  }
+  return t("routes.sendAnnouncement");
+};
+const canSendAnnouncement = (order: RouteOrder) =>
+  hasCustomerEmail(order) &&
+  !announcementSent(order) &&
+  sendingAnnouncementId.value !== order.id &&
+  !submitting.value;
+
+const sendAnnouncementEmail = async (order: RouteOrder, event?: Event) => {
+  event?.stopPropagation();
+  event?.preventDefault();
+  if (!detail.value || !canSendAnnouncement(order)) {
+    return;
+  }
+
+  sendingAnnouncementId.value = order.id;
+  error.value = "";
+  try {
+    const data = await sendAnnouncementRequest(detail.value.id, order.id);
+    applyRouteMutation(data.order, data.route);
+  } catch (e) {
+    error.value = displayApiError(e, t("routes.announcementSendFailed"));
+  } finally {
+    sendingAnnouncementId.value = null;
+  }
+};
+
 const beginProofCapture = (choice: Extract<DeliveryMethodChoice, { proofType: ProofType }>) => {
   pendingDeliveryMethod.value = choice.method;
   pendingNeighborName.value = choice.neighborName?.trim() ?? "";
@@ -947,9 +985,11 @@ watch(
         :submitting="submitting"
         :actions-enabled="deliveryActionsEnabled"
         :read-only="isRouteCompleted"
+        :sending-announcement="sendingAnnouncementId === selectedOrder.id"
         @back="backToStops"
         @confirm="onOrderConfirm"
         @refuse="openRefuse"
+        @send-announcement="sendAnnouncementEmail(selectedOrder)"
       />
 
       <template v-else-if="detail">
@@ -1056,6 +1096,37 @@ watch(
                           stroke-linejoin="round"
                         />
                         <circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8" />
+                      </svg>
+                    </button>
+                    <button
+                      class="stop-card__mail-btn"
+                      type="button"
+                      :class="{
+                        'stop-card__mail-btn--sent': announcementSent(order),
+                        'stop-card__mail-btn--missing': !hasCustomerEmail(order),
+                      }"
+                      :aria-label="mailButtonTitle(order)"
+                      :title="mailButtonTitle(order)"
+                      :disabled="!canSendAnnouncement(order)"
+                      @click="sendAnnouncementEmail(order, $event)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                        <rect
+                          x="3.5"
+                          y="5.5"
+                          width="17"
+                          height="13"
+                          rx="2"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        />
+                        <path
+                          d="M4.5 7.5 12 13l7.5-5.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
                       </svg>
                     </button>
                     <div class="stop-card__badges">
@@ -1166,6 +1237,37 @@ watch(
                         r="2.5"
                         stroke="currentColor"
                         stroke-width="1.8"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    class="stop-card__mail-btn"
+                    type="button"
+                    :class="{
+                      'stop-card__mail-btn--sent': announcementSent(order),
+                      'stop-card__mail-btn--missing': !hasCustomerEmail(order),
+                    }"
+                    :aria-label="mailButtonTitle(order)"
+                    :title="mailButtonTitle(order)"
+                    :disabled="!canSendAnnouncement(order)"
+                    @click="sendAnnouncementEmail(order, $event)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                      <rect
+                        x="3.5"
+                        y="5.5"
+                        width="17"
+                        height="13"
+                        rx="2"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                      />
+                      <path
+                        d="M4.5 7.5 12 13l7.5-5.5"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
                       />
                     </svg>
                   </button>

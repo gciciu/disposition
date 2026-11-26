@@ -907,7 +907,8 @@ body {
 }
 
 .stop-card__edit-btn,
-.stop-card__map-btn {
+.stop-card__map-btn,
+.stop-card__mail-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -922,18 +923,30 @@ body {
   cursor: pointer;
 }
 
-.stop-card__edit-btn:hover,
-.stop-card__map-btn:hover {
-  background: color-mix(in srgb, var(--accent, #1d4ed8) 12%, transparent);
+.stop-card__mail-btn--sent {
+  color: #15803d;
 }
 
-.stop-card__edit-btn:disabled {
+.stop-card__mail-btn--missing {
+  color: #94a3b8;
+  cursor: default;
+}
+
+.stop-card__edit-btn:hover,
+.stop-card__map-btn:hover,
+.stop-card__mail-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.stop-card__edit-btn:disabled,
+.stop-card__mail-btn:disabled {
   opacity: 0.55;
   cursor: default;
 }
 
 .stop-card__edit-btn svg,
-.stop-card__map-btn svg {
+.stop-card__map-btn svg,
+.stop-card__mail-btn svg {
   width: 1.05rem;
   height: 1.05rem;
 }

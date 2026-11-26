@@ -19,6 +19,7 @@ import SectionTitleLineWithButton from '@/components/SectionTitleLineWithButton.
 import BaseButton from '@/components/BaseButton.vue'
 import BaseIcon from '@/components/BaseIcon.vue'
 import DeliveryProofThumb from '@/components/DeliveryProofThumb.vue'
+import FormControl from '@/components/FormControl.vue'
 import OrderCommentsModal from '@/components/OrderCommentsModal.vue'
 import AddressAutocomplete from '@/components/AddressAutocomplete.vue'
 import api, { showApiError } from '@/api.js'
@@ -39,6 +40,7 @@ const commentsModalOpen = ref(false)
 const addressDraft = ref('')
 const addressPlaceId = ref(null)
 const savingAddress = ref(false)
+const savingReturnDestination = ref(false)
 
 const UNLOAD_MIN = 1
 const UNLOAD_MAX = 60
@@ -263,6 +265,52 @@ const onCommentsSaved = (routeData) => {
 const isOrderFinished = computed(
   () => order.value?.status === 'delivered' || order.value?.status === 'refused',
 )
+
+const needsReturnDestination = computed(
+  () => Boolean(order.value?.isExchange) || order.value?.status === 'refused',
+)
+
+const returnDestinationOptions = computed(() => [
+  { id: null, label: t('deliveryRoutes.returnDestinationUnset') },
+  { id: 'warehouse_return', label: t('deliveryRoutes.returnDestinationWarehouseReturn') },
+  { id: 'warehouse_shelf', label: t('deliveryRoutes.returnDestinationWarehouseShelf') },
+  { id: 'container', label: t('deliveryRoutes.returnDestinationContainer') },
+  { id: 'office', label: t('deliveryRoutes.returnDestinationOffice') },
+])
+
+const returnDestinationOption = computed(() => {
+  const value = order.value?.returnDestination ?? null
+  return (
+    returnDestinationOptions.value.find((option) => option.id === value) ??
+    returnDestinationOptions.value[0]
+  )
+})
+
+const saveReturnDestination = async (option) => {
+  if (!routeDetail.value?.id || !order.value?.id || savingReturnDestination.value) {
+    return
+  }
+
+  const nextValue = option?.id ?? null
+  if (nextValue === (order.value.returnDestination ?? null)) {
+    return
+  }
+
+  savingReturnDestination.value = true
+  try {
+    const { data } = await api.put(`/api/admin/routes/${routeDetail.value.id}`, {
+      orders: [{ id: order.value.id, returnDestination: nextValue }],
+    })
+    routeDetail.value = data.route
+    syncUnloadDraft({ preserveDirty: true })
+    syncAddressDraft()
+    toast.success(t('deliveryRoutes.returnDestinationSaved'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.returnDestinationSaveFailed'))
+  } finally {
+    savingReturnDestination.value = false
+  }
+}
 
 const syncAddressDraft = () => {
   if (!order.value || order.value.addressValid) {
@@ -590,6 +638,17 @@ watch(
             <div>
               <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.distance') }}</div>
               <div>{{ order.travelDistanceText || '—' }}</div>
+            </div>
+            <div v-if="needsReturnDestination" class="sm:col-span-2 lg:col-span-1">
+              <div class="mb-1 text-xs text-gray-500 uppercase">
+                {{ t('deliveryRoutes.returnDestination') }}
+              </div>
+              <FormControl
+                :model-value="returnDestinationOption"
+                :options="returnDestinationOptions"
+                :disabled="savingReturnDestination"
+                @update:model-value="saveReturnDestination"
+              />
             </div>
             <div class="sm:col-span-2">
               <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.address') }}</div>

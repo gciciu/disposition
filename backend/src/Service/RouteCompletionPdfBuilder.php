@@ -9,8 +9,10 @@ use App\Dto\RouteCompletionPdf\RouteCompletionPdfReturn;
 use App\Dto\RouteCompletionPdf\RouteCompletionPdfStop;
 use App\Entity\DeliveryOrder;
 use App\Entity\DeliveryRoute;
+use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryOrderStatus;
 use App\Enum\DeliveryProofType;
+use App\Enum\ReturnDestination;
 use App\Util\AddressFormatter;
 
 /**
@@ -83,8 +85,11 @@ class RouteCompletionPdfBuilder
             $extra = $this->resolveStopExtra($order, $stopExtras);
             $stops[] = $this->buildStop($order, $extra);
 
-            if (DeliveryOrderStatus::Refused === $order->getStatus()) {
-                $returns[] = $this->buildReturnFromRefused(
+            if (
+                DeliveryOrderStatus::Refused === $order->getStatus()
+                || $order->isExchange()
+            ) {
+                $returns[] = $this->buildReturn(
                     $order,
                     $extra['customerRemark'] ?? $order->getCommentsText(),
                 );
@@ -139,19 +144,35 @@ class RouteCompletionPdfBuilder
         );
     }
 
-    private function buildReturnFromRefused(DeliveryOrder $order, ?string $customerRemark): RouteCompletionPdfReturn
+    private function buildReturn(DeliveryOrder $order, ?string $customerRemark): RouteCompletionPdfReturn
     {
+        $destination = $order->getReturnDestination() ?? ReturnDestination::WarehouseReturn;
+
         return new RouteCompletionPdfReturn(
             position: $order->getPosition(),
-            returnType: RouteCompletionPdfReturn::TYPE_WAREHOUSE_RETURN,
+            returnType: $destination->labelDe(),
             clientName: $order->getClientName(),
             address: AddressFormatter::withoutCountry(
                 $order->getFormattedAddress() ?? $order->getAddress(),
             ) ?? $order->getAddress(),
             products: $order->getProducts(),
-            deliveredLabel: 'Nein, Durch Dispo geschlossen',
+            deliveredLabel: $this->returnDeliveredLabel($order),
             remark: $customerRemark,
         );
+    }
+
+    private function returnDeliveredLabel(DeliveryOrder $order): string
+    {
+        if (DeliveryOrderStatus::Refused === $order->getStatus()) {
+            return 'Nein, Durch Dispo geschlossen';
+        }
+
+        $method = $order->getDeliveryMethod();
+        if ($method instanceof DeliveryMethod) {
+            return 'Ja, '.$method->labelDe();
+        }
+
+        return 'Ja, '.DeliveryMethod::Personal->labelDe();
     }
 
     private function signatureDataUri(DeliveryOrder $order): ?string

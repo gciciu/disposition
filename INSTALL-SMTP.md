@@ -6,6 +6,7 @@ Used for:
 
 - Admin → **Email** → test messages
 - Customer delivery confirmation (**Lieferbestätigung**) with PDF attachment
+- Day-before delivery announcement (**Lieferankündigung**) from the assigned driver’s corporate email (`From` / `Reply-To` = courier login email; still sent via the shared `MAILER_DSN`)
 
 Replace:
 
@@ -135,6 +136,32 @@ MAIL_FROM=noreply@delivery.local
 
 ---
 
+### 6. Lieferankündigung cron (day before route)
+
+At **18:00 Europe/Berlin**, send announcement emails for all stops on routes scheduled for **tomorrow**:
+
+```bash
+# Crontab: run in Europe/Berlin (or set TZ explicitly)
+TZ=Europe/Berlin
+0 18 * * * cd /var/www/delivery/backend && php bin/console app:send-delivery-announcements >> /var/log/delivery-announcements.log 2>&1
+```
+
+Manual / dry-run for a specific route date:
+
+```bash
+cd /var/www/delivery/backend
+php bin/console app:send-delivery-announcements --date=2026-11-28
+```
+
+Notes:
+
+- Recipient follows **Confirmation email** settings (test vs client) in Admin → Settings — same as Lieferbestätigung.
+- Already-sent stops are skipped (`announcement_email_sent_at`).
+- Manual send is also available from the admin route table and the driver app (mail icon).
+- For deliverability when `From` is the driver’s mailbox, that address must be allowed by the SMTP provider / domain (SPF/DKIM for the same domain as the corporate mailboxes).
+
+---
+
 ### Troubleshooting
 
 | Symptom | Check |
@@ -144,5 +171,6 @@ MAIL_FROM=noreply@delivery.local
 | Password with special chars fails | URL-encode in the DSN |
 | Mail goes to spam | SPF + DKIM (+ DMARC) for the `MAIL_FROM` domain |
 | Invalid From | Set a valid `MAIL_FROM` email |
+| Lieferankündigung From rejected | Driver corporate emails must be on a domain the SMTP provider is allowed to send for |
 
 `COMPANY_*` in `.env.local` only affect the **PDF letterhead**, not SMTP.

@@ -10,6 +10,8 @@ final class RouteCompletionPdfReturn
 {
     public const TYPE_CONTAINER = 'Container';
     public const TYPE_WAREHOUSE_RETURN = 'Lager: Rückläufer';
+    public const TYPE_WAREHOUSE_SHELF = 'Lager: Regal';
+    public const TYPE_OFFICE = 'Büro';
 
     /**
      * @param list<string> $products

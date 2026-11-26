@@ -30,6 +30,8 @@ class EmailService
         string $textBody,
         ?string $htmlBody = null,
         array $attachments = [],
+        ?Address $from = null,
+        ?Address $replyTo = null,
     ): array {
         $to = trim($to);
         $subject = trim($subject);
@@ -47,16 +49,24 @@ class EmailService
             throw new BadRequestHttpException('Message body is required');
         }
 
-        $from = trim($this->mailFrom);
-        if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {
-            throw new BadRequestHttpException('MAIL_FROM is not configured with a valid email address');
+        $fromAddress = $from;
+        if (null === $fromAddress) {
+            $configuredFrom = trim($this->mailFrom);
+            if ($configuredFrom === '' || !filter_var($configuredFrom, FILTER_VALIDATE_EMAIL)) {
+                throw new BadRequestHttpException('MAIL_FROM is not configured with a valid email address');
+            }
+            $fromAddress = new Address($configuredFrom, 'Delivery');
         }
 
         $email = (new Email())
-            ->from(new Address($from, 'Delivery'))
+            ->from($fromAddress)
             ->to($to)
             ->subject($subject)
             ->text($textBody);
+
+        if (null !== $replyTo) {
+            $email->replyTo($replyTo);
+        }
 
         if ($htmlBody !== null && trim($htmlBody) !== '') {
             $email->html($htmlBody);

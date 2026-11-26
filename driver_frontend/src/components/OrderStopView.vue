@@ -11,12 +11,14 @@ const props = defineProps<{
   submitting: boolean;
   actionsEnabled: boolean;
   readOnly?: boolean;
+  sendingAnnouncement?: boolean;
 }>();
 
 const emit = defineEmits<{
   back: [];
   confirm: [payload: { deliveredProductIndexes: number[]; courierComment: string }];
   refuse: [courierComment: string];
+  sendAnnouncement: [];
 }>();
 
 const { t } = useI18n();
@@ -125,6 +127,33 @@ const actionsLocked = computed(
   () => isClosed.value || props.submitting || !props.actionsEnabled,
 );
 
+const hasCustomerEmail = computed(() => Boolean(props.order.email?.trim()));
+const announcementSent = computed(() => Boolean(props.order.announcementEmailSentAt));
+const mailButtonTitle = computed(() => {
+  if (!hasCustomerEmail.value) {
+    return t("routes.announcementMissingEmail");
+  }
+  if (announcementSent.value) {
+    return t("routes.announcementSent");
+  }
+  return t("routes.sendAnnouncement");
+});
+const canSendAnnouncement = computed(
+  () =>
+    hasCustomerEmail.value &&
+    !announcementSent.value &&
+    !props.sendingAnnouncement &&
+    !props.submitting,
+);
+
+const onSendAnnouncement = (event?: Event) => {
+  event?.stopPropagation();
+  if (!canSendAnnouncement.value) {
+    return;
+  }
+  emit("sendAnnouncement");
+};
+
 const toggleProduct = (index: number) => {
   if (actionsLocked.value) {
     return;
@@ -221,6 +250,37 @@ const openStopMaps = async (event: Event) => {
                   stroke-linejoin="round"
                 />
                 <circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </button>
+            <button
+              class="stop-card__mail-btn"
+              type="button"
+              :class="{
+                'stop-card__mail-btn--sent': announcementSent,
+                'stop-card__mail-btn--missing': !hasCustomerEmail,
+              }"
+              :aria-label="mailButtonTitle"
+              :title="mailButtonTitle"
+              :disabled="!canSendAnnouncement"
+              @click="onSendAnnouncement"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                <rect
+                  x="3.5"
+                  y="5.5"
+                  width="17"
+                  height="13"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M4.5 7.5 12 13l7.5-5.5"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
             </button>
             <div class="stop-card__badges">

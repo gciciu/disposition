@@ -6,6 +6,7 @@ use App\Entity\DeliveryOrder;
 use App\Enum\DeliveryMethod;
 use App\Enum\DeliveryOrderStatus;
 use App\Enum\DeliveryProofType;
+use App\Enum\ReturnDestination;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -147,6 +148,10 @@ class DeliveryProofService
             ->setProofPath(null)
             ->setProofMime(null)
             ->setCourierComment($courierComment);
+
+        if (null === $order->getReturnDestination()) {
+            $order->setReturnDestination(ReturnDestination::WarehouseReturn);
+        }
 
         $this->em->flush();
         $this->realtime->publishOrderRefused($order);
