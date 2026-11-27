@@ -125,6 +125,13 @@ class DeliveryProofService
             ->setProofMime($mime === 'image/jpg' ? 'image/jpeg' : $mime)
             ->setCourierComment($courierComment);
 
+        if (
+            DeliveryMethod::Partial === $deliveryMethod
+            && null === $order->getReturnDestination()
+        ) {
+            $order->setReturnDestination(ReturnDestination::WarehouseReturn);
+        }
+
         $this->em->flush();
         $this->realtime->publishOrderCompleted($order);
 

@@ -801,6 +801,66 @@ class DeliveryOrder
     }
 
     /**
+     * Partial delivery — some products were not handed over (return goods).
+     */
+    public function isPartialDelivery(): bool
+    {
+        if (DeliveryMethod::Partial === $this->deliveryMethod) {
+            return true;
+        }
+
+        if (DeliveryOrderStatus::Delivered !== $this->status) {
+            return false;
+        }
+
+        $products = $this->getProducts();
+        if ([] === $products || null === $this->deliveredProductIndexes) {
+            return false;
+        }
+
+        foreach (array_keys($products) as $index) {
+            if (!\in_array($index, $this->deliveredProductIndexes, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when undelivered / exchanged goods need a warehouse disposition (Retourschein).
+     */
+    public function needsReturnDestination(): bool
+    {
+        return DeliveryOrderStatus::Refused === $this->status
+            || $this->isExchange()
+            || $this->isPartialDelivery();
+    }
+
+    /**
+     * Products that go back (full stop on refuse/exchange, undelivered subset on partial).
+     *
+     * @return list<string>
+     */
+    public function returnedProducts(): array
+    {
+        $products = $this->getProducts();
+        if (!$this->isPartialDelivery()) {
+            return $products;
+        }
+
+        $delivered = $this->deliveredProductIndexes ?? [];
+        $returned = [];
+        foreach ($products as $index => $product) {
+            if (!\in_array($index, $delivered, true)) {
+                $returned[] = $product;
+            }
+        }
+
+        return $returned;
+    }
+
+    /**
      * @return array{
      *     id: int|null,
      *     position: int,

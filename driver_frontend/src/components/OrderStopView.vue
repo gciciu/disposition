@@ -54,6 +54,21 @@ const statusLabel = computed(() => {
   return "";
 });
 
+const returnDestinationLabel = computed(() => {
+  switch (props.order.returnDestination) {
+    case "warehouse_return":
+      return t("delivery.returnDestinationWarehouseReturn");
+    case "warehouse_shelf":
+      return t("delivery.returnDestinationWarehouseShelf");
+    case "container":
+      return t("delivery.returnDestinationContainer");
+    case "office":
+      return t("delivery.returnDestinationOffice");
+    default:
+      return null;
+  }
+});
+
 const displayAddress = computed(() =>
   withoutCountry(props.order.formattedAddress || props.order.address),
 );
@@ -132,6 +147,9 @@ const announcementSent = computed(() => Boolean(props.order.announcementEmailSen
 const mailButtonTitle = computed(() => {
   if (!hasCustomerEmail.value) {
     return t("routes.announcementMissingEmail");
+  }
+  if (props.sendingAnnouncement) {
+    return t("routes.announcementSending");
   }
   if (announcementSent.value) {
     return t("routes.announcementSent");
@@ -258,13 +276,41 @@ const openStopMaps = async (event: Event) => {
               :class="{
                 'stop-card__mail-btn--sent': announcementSent,
                 'stop-card__mail-btn--missing': !hasCustomerEmail,
+                'stop-card__mail-btn--sending': sendingAnnouncement,
               }"
               :aria-label="mailButtonTitle"
               :title="mailButtonTitle"
               :disabled="!canSendAnnouncement"
               @click="onSendAnnouncement"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <svg
+                v-if="sendingAnnouncement"
+                class="stop-card__mail-btn-spinner"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                fill="none"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="8"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-dasharray="36 20"
+                />
+              </svg>
+              <svg
+                v-else-if="announcementSent"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M20,8L12,13L4,8V6L12,11L20,6M20,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V6C22,4.89 21.1,4 20,4Z"
+                />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true" fill="none">
                 <rect
                   x="3.5"
                   y="5.5"
@@ -293,6 +339,13 @@ const openStopMaps = async (event: Event) => {
                 :class="{ 'stop-card__badge--refused': isRefused }"
               >
                 {{ statusLabel }}
+              </span>
+              <span
+                v-if="returnDestinationLabel"
+                class="stop-card__badge stop-card__badge--return"
+                :title="t('delivery.returnDestination')"
+              >
+                {{ returnDestinationLabel }}
               </span>
             </div>
           </div>

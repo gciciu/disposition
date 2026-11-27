@@ -12,8 +12,11 @@ import {
   mdiContentSave,
   mdiFilePdfBox,
   mdiCalculator,
+  mdiEmail,
   mdiEmailOutline,
   mdiTrashCan,
+  mdiPlus,
+  mdiPencil,
 } from '@mdi/js'
 import { useToast } from 'vue-toastification'
 import SectionMain from '@/components/SectionMain.vue'
@@ -59,10 +62,25 @@ const addressDrafts = ref({})
 const savingAddressId = ref(null)
 const sendingAnnouncementId = ref(null)
 const savingReturnDestinationId = ref(null)
+const editingReturnDestinationId = ref(null)
+const addOrderModalOpen = ref(false)
+const addingOrder = ref(false)
 
 const UNLOAD_MIN = 1
 const UNLOAD_MAX = 60
 const UNLOAD_DEFAULT = 10
+
+const addOrderForm = ref({
+  position: 2,
+  clientName: '',
+  address: '',
+  placeId: null,
+  phone: '',
+  email: '',
+  unloadingDurationMinutes: UNLOAD_DEFAULT,
+  weightKg: '',
+  products: [''],
+})
 
 const title = computed(() => {
   if (!detail.value) {
@@ -227,9 +245,6 @@ const onCommentsSaved = (routeData) => {
 const isOrderFinished = (order) =>
   order?.status === 'delivered' || order?.status === 'refused'
 
-const needsReturnDestination = (order) =>
-  Boolean(order?.isExchange) || order?.status === 'refused'
-
 const returnDestinationOptions = computed(() => [
   { id: null, label: t('deliveryRoutes.returnDestinationUnset') },
   { id: 'warehouse_return', label: t('deliveryRoutes.returnDestinationWarehouseReturn') },
@@ -246,6 +261,13 @@ const returnDestinationOptionOf = (order) => {
   )
 }
 
+const startEditReturnDestination = (order) => {
+  if (!order?.id || savingReturnDestinationId.value != null) {
+    return
+  }
+  editingReturnDestinationId.value = order.id
+}
+
 const saveReturnDestination = async (order, option) => {
   if (!detail.value?.id || !order?.id || savingReturnDestinationId.value != null) {
     return
@@ -253,6 +275,7 @@ const saveReturnDestination = async (order, option) => {
 
   const nextValue = option?.id ?? null
   if (nextValue === (order.returnDestination ?? null)) {
+    editingReturnDestinationId.value = null
     return
   }
 
@@ -267,6 +290,7 @@ const saveReturnDestination = async (order, option) => {
     syncScheduleFields()
     syncUnloadDrafts()
     syncAddressDrafts()
+    editingReturnDestinationId.value = null
     toast.success(t('deliveryRoutes.returnDestinationSaved'))
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.returnDestinationSaveFailed'))
@@ -537,6 +561,120 @@ const askDelete = () => {
   deleteModalOpen.value = true
 }
 
+const defaultAddOrderPosition = () => {
+  const orders = detail.value?.orders
+  if (!Array.isArray(orders) || orders.length === 0) {
+    return 2
+  }
+  let max = 0
+  for (const order of orders) {
+    const pos = Number(order?.position) || 0
+    if (pos > max) {
+      max = pos
+    }
+  }
+  return max + 1
+}
+
+const openAddOrderModal = () => {
+  if (!detail.value?.id || isRouteStarted.value) {
+    return
+  }
+  addOrderForm.value = {
+    position: defaultAddOrderPosition(),
+    clientName: '',
+    address: '',
+    placeId: null,
+    phone: '',
+    email: '',
+    unloadingDurationMinutes: UNLOAD_DEFAULT,
+    weightKg: '',
+    products: [''],
+  }
+  addOrderModalOpen.value = true
+}
+
+const addOrderProductRow = () => {
+  addOrderForm.value.products = [...addOrderForm.value.products, '']
+}
+
+const removeOrderProductRow = (index) => {
+  const next = addOrderForm.value.products.filter((_, i) => i !== index)
+  addOrderForm.value.products = next.length > 0 ? next : ['']
+}
+
+const submitAddOrder = async () => {
+  if (!detail.value?.id || addingOrder.value || isRouteStarted.value) {
+    return
+  }
+
+  const position = Number.parseInt(String(addOrderForm.value.position), 10)
+  if (!Number.isFinite(position) || position < 1) {
+    toast.error(t('deliveryRoutes.addOrderPositionInvalid'))
+    return
+  }
+
+  const clientName = String(addOrderForm.value.clientName ?? '').trim()
+  if (!clientName) {
+    toast.error(t('deliveryRoutes.addOrderClientRequired'))
+    return
+  }
+
+  const address = String(addOrderForm.value.address ?? '').trim()
+  if (!address) {
+    toast.error(t('deliveryRoutes.addOrderAddressRequired'))
+    return
+  }
+
+  const products = (addOrderForm.value.products ?? [])
+    .map((line) => String(line ?? '').trim())
+    .filter(Boolean)
+
+  const payload = {
+    position,
+    clientName,
+    address,
+    unloadingDurationMinutes: clampUnloadMinutes(addOrderForm.value.unloadingDurationMinutes),
+    products,
+  }
+
+  if (addOrderForm.value.placeId) {
+    payload.placeId = addOrderForm.value.placeId
+  }
+
+  const phone = String(addOrderForm.value.phone ?? '').trim()
+  if (phone) {
+    payload.phone = phone
+  }
+
+  const email = String(addOrderForm.value.email ?? '').trim()
+  if (email) {
+    payload.email = email
+  }
+
+  const weightRaw = String(addOrderForm.value.weightKg ?? '').trim()
+  if (weightRaw !== '') {
+    const weightKg = Number(weightRaw)
+    if (!Number.isFinite(weightKg) || weightKg < 0) {
+      toast.error(t('deliveryRoutes.addOrderFailed'))
+      return
+    }
+    payload.weightKg = weightKg
+  }
+
+  addingOrder.value = true
+  try {
+    const { data } = await api.post(`/api/admin/routes/${detail.value.id}/orders`, payload)
+    applyRouteData(data.route)
+    addOrderModalOpen.value = false
+    toast.success(t('deliveryRoutes.addOrderSuccess'))
+  } catch (e) {
+    showApiError(toast, e, t('deliveryRoutes.addOrderFailed'))
+  } finally {
+    addingOrder.value = false
+  }
+}
+
 const confirmDelete = async () => {
   if (!detail.value?.id || deleting.value) {
     return
@@ -641,6 +779,11 @@ const isPartialDelivery = (order) => {
   return products.some((_, index) => !isProductDelivered(order, index))
 }
 
+const needsReturnDestination = (order) =>
+  Boolean(order?.isExchange) ||
+  order?.status === 'refused' ||
+  isPartialDelivery(order)
+
 const deliveryMethodLabel = (order) => {
   switch (order.deliveryMethod) {
     case 'personal':
@@ -688,6 +831,9 @@ const openOrderDetail = (order) => {
 const announcementEmailTitle = (order) => {
   if (!order?.email) {
     return t('deliveryRoutes.emailNotifyMissing')
+  }
+  if (sendingAnnouncementId.value === order?.id) {
+    return t('deliveryRoutes.emailNotifySending')
   }
   if (order.announcementEmailSentAt) {
     return t('deliveryRoutes.emailNotifySent')
@@ -980,6 +1126,16 @@ watch(
           </div>
         </CardBox>
 
+        <div v-if="canEditAssignment" class="mb-4 flex justify-end">
+          <BaseButton
+            color="info"
+            :icon="mdiPlus"
+            :label="t('deliveryRoutes.addOrder')"
+            :disabled="loading || addingOrder || saving"
+            @click="openAddOrderModal"
+          />
+        </div>
+
         <CardBox v-if="!detail.orders?.length">
           <CardBoxComponentEmpty />
         </CardBox>
@@ -1060,11 +1216,37 @@ watch(
                       {{ t('deliveryRoutes.returnDestination') }}
                     </div>
                     <FormControl
+                      v-if="editingReturnDestinationId === order.id"
                       :model-value="returnDestinationOptionOf(order)"
                       :options="returnDestinationOptions"
                       :disabled="savingReturnDestinationId === order.id"
                       @update:model-value="saveReturnDestination(order, $event)"
                     />
+                    <div
+                      v-else
+                      class="flex items-center gap-1.5"
+                    >
+                      <span
+                        class="inline-flex max-w-full rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                        :class="
+                          order.returnDestination
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200'
+                            : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'
+                        "
+                      >
+                        {{ returnDestinationOptionOf(order).label }}
+                      </span>
+                      <button
+                        type="button"
+                        class="rounded p-1 text-gray-500 hover:bg-black/5 hover:text-gray-800 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                        :title="t('deliveryRoutes.edit')"
+                        :aria-label="t('deliveryRoutes.edit')"
+                        :disabled="savingReturnDestinationId === order.id"
+                        @click="startEditReturnDestination(order)"
+                      >
+                        <BaseIcon :path="mdiPencil" size="16" />
+                      </button>
+                    </div>
                   </div>
                   <div
                     v-if="order.addressValid"
@@ -1263,10 +1445,16 @@ watch(
                     class="inline-flex items-center justify-center rounded p-1.5 transition-colors"
                     :class="{
                       'cursor-default text-gray-300 dark:text-slate-600': !order.email,
-                      'text-green-600 dark:text-green-400':
+                      'cursor-default text-green-600 dark:text-green-400':
                         order.email && order.announcementEmailSentAt,
-                      'text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-slate-700':
-                        order.email && !order.announcementEmailSentAt,
+                      'cursor-wait text-blue-600 dark:text-blue-400':
+                        order.email &&
+                        !order.announcementEmailSentAt &&
+                        sendingAnnouncementId === order.id,
+                      'cursor-pointer text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-slate-700':
+                        order.email &&
+                        !order.announcementEmailSentAt &&
+                        sendingAnnouncementId !== order.id,
                     }"
                     :disabled="
                       !order.email ||
@@ -1277,7 +1465,17 @@ watch(
                     :aria-label="announcementEmailTitle(order)"
                     @click="sendAnnouncementEmail(order)"
                   >
-                    <BaseIcon :path="mdiEmailOutline" size="20" />
+                    <BaseIcon
+                      :path="
+                        sendingAnnouncementId === order.id
+                          ? mdiLoading
+                          : order.announcementEmailSentAt
+                            ? mdiEmail
+                            : mdiEmailOutline
+                      "
+                      size="20"
+                      :class="{ 'animate-spin': sendingAnnouncementId === order.id }"
+                    />
                   </button>
                 </td>
               </tr>
@@ -1294,6 +1492,121 @@ watch(
           :client-name="commentsOrder?.clientName ?? ''"
           @saved="onCommentsSaved"
         />
+
+        <CardBoxModal
+          v-model="addOrderModalOpen"
+          :title="t('deliveryRoutes.addOrderTitle')"
+          button="info"
+          :button-label="
+            addingOrder ? t('deliveryRoutes.saving') : t('deliveryRoutes.addOrderSubmit')
+          "
+          has-cancel
+          is-form
+          wide
+          :is-processing="addingOrder"
+          @confirm="submitAddOrder"
+        >
+          <div class="grid gap-4">
+            <FormField
+              :label="t('deliveryRoutes.addOrderPosition')"
+              :help="t('deliveryRoutes.addOrderPositionHelp')"
+            >
+              <FormControl
+                v-model="addOrderForm.position"
+                type="number"
+                :disabled="addingOrder"
+                min="1"
+                step="1"
+                required
+              />
+            </FormField>
+            <FormField :label="t('deliveryRoutes.clientName')">
+              <FormControl
+                v-model="addOrderForm.clientName"
+                :disabled="addingOrder"
+                required
+              />
+            </FormField>
+            <FormField :label="t('deliveryRoutes.address')">
+              <AddressAutocomplete
+                v-model="addOrderForm.address"
+                v-model:place-id="addOrderForm.placeId"
+                :placeholder="t('deliveryRoutes.addressPlaceholder')"
+                :disabled="addingOrder"
+                required
+              />
+            </FormField>
+            <div class="grid gap-4 md:grid-cols-2">
+              <FormField :label="t('deliveryRoutes.phone')">
+                <FormControl v-model="addOrderForm.phone" :disabled="addingOrder" />
+              </FormField>
+              <FormField :label="t('deliveryRoutes.clientEmail')">
+                <FormControl
+                  v-model="addOrderForm.email"
+                  type="email"
+                  :disabled="addingOrder"
+                />
+              </FormField>
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <FormField :label="t('deliveryRoutes.unloadTime')">
+                <FormControl
+                  v-model="addOrderForm.unloadingDurationMinutes"
+                  type="number"
+                  :min="UNLOAD_MIN"
+                  :max="UNLOAD_MAX"
+                  :disabled="addingOrder"
+                />
+              </FormField>
+              <FormField :label="t('deliveryRoutes.weight')">
+                <FormControl
+                  v-model="addOrderForm.weightKg"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  :disabled="addingOrder"
+                />
+              </FormField>
+            </div>
+            <FormField :label="t('deliveryRoutes.products')">
+              <div class="grid gap-2">
+                <div
+                  v-for="(_, index) in addOrderForm.products"
+                  :key="index"
+                  class="flex items-center gap-2"
+                >
+                  <FormControl
+                    v-model="addOrderForm.products[index]"
+                    :placeholder="t('deliveryRoutes.addOrderProductPlaceholder')"
+                    :disabled="addingOrder"
+                    class="min-w-0 flex-1"
+                  />
+                  <BaseButton
+                    v-if="addOrderForm.products.length > 1"
+                    color="danger"
+                    outline
+                    small
+                    :icon="mdiTrashCan"
+                    :disabled="addingOrder"
+                    :title="t('deliveryRoutes.addOrderProductRemove')"
+                    @click="removeOrderProductRow(index)"
+                  />
+                </div>
+                <div>
+                  <BaseButton
+                    color="info"
+                    outline
+                    small
+                    :icon="mdiPlus"
+                    :label="t('deliveryRoutes.addOrderProduct')"
+                    :disabled="addingOrder"
+                    @click="addOrderProductRow"
+                  />
+                </div>
+              </div>
+            </FormField>
+          </div>
+        </CardBoxModal>
 
         <CardBoxModal
           v-model="deleteModalOpen"

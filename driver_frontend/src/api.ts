@@ -409,6 +409,12 @@ export type RouteOrder = {
   arrivalTime?: string | null;
   status: OrderStatus;
   isExchange?: boolean;
+  returnDestination?:
+    | "warehouse_return"
+    | "warehouse_shelf"
+    | "container"
+    | "office"
+    | null;
   comments?: OrderComment[];
   completedAt: string | null;
   proofType: ProofType | null;

@@ -10,6 +10,7 @@ import {
   mdiLoading,
   mdiCalculator,
   mdiContentSave,
+  mdiPencil,
 } from '@mdi/js'
 import { useToast } from 'vue-toastification'
 import SectionMain from '@/components/SectionMain.vue'
@@ -41,6 +42,7 @@ const addressDraft = ref('')
 const addressPlaceId = ref(null)
 const savingAddress = ref(false)
 const savingReturnDestination = ref(false)
+const editingReturnDestination = ref(false)
 
 const UNLOAD_MIN = 1
 const UNLOAD_MAX = 60
@@ -267,7 +269,10 @@ const isOrderFinished = computed(
 )
 
 const needsReturnDestination = computed(
-  () => Boolean(order.value?.isExchange) || order.value?.status === 'refused',
+  () =>
+    Boolean(order.value?.isExchange) ||
+    order.value?.status === 'refused' ||
+    isPartialDelivery(order.value),
 )
 
 const returnDestinationOptions = computed(() => [
@@ -286,6 +291,13 @@ const returnDestinationOption = computed(() => {
   )
 })
 
+const startEditReturnDestination = () => {
+  if (savingReturnDestination.value) {
+    return
+  }
+  editingReturnDestination.value = true
+}
+
 const saveReturnDestination = async (option) => {
   if (!routeDetail.value?.id || !order.value?.id || savingReturnDestination.value) {
     return
@@ -293,6 +305,7 @@ const saveReturnDestination = async (option) => {
 
   const nextValue = option?.id ?? null
   if (nextValue === (order.value.returnDestination ?? null)) {
+    editingReturnDestination.value = false
     return
   }
 
@@ -304,6 +317,7 @@ const saveReturnDestination = async (option) => {
     routeDetail.value = data.route
     syncUnloadDraft({ preserveDirty: true })
     syncAddressDraft()
+    editingReturnDestination.value = false
     toast.success(t('deliveryRoutes.returnDestinationSaved'))
   } catch (e) {
     showApiError(toast, e, t('deliveryRoutes.returnDestinationSaveFailed'))
@@ -644,11 +658,37 @@ watch(
                 {{ t('deliveryRoutes.returnDestination') }}
               </div>
               <FormControl
+                v-if="editingReturnDestination"
                 :model-value="returnDestinationOption"
                 :options="returnDestinationOptions"
                 :disabled="savingReturnDestination"
                 @update:model-value="saveReturnDestination"
               />
+              <div
+                v-else
+                class="flex items-center gap-1.5"
+              >
+                <span
+                  class="inline-flex max-w-full rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  :class="
+                    order.returnDestination
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200'
+                      : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'
+                  "
+                >
+                  {{ returnDestinationOption.label }}
+                </span>
+                <button
+                  type="button"
+                  class="rounded p-1 text-gray-500 hover:bg-black/5 hover:text-gray-800 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                  :title="t('deliveryRoutes.edit')"
+                  :aria-label="t('deliveryRoutes.edit')"
+                  :disabled="savingReturnDestination"
+                  @click="startEditReturnDestination"
+                >
+                  <BaseIcon :path="mdiPencil" size="16" />
+                </button>
+              </div>
             </div>
             <div class="sm:col-span-2">
               <div class="text-xs text-gray-500 uppercase">{{ t('deliveryRoutes.address') }}</div>

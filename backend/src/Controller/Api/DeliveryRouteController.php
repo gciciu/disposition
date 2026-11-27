@@ -240,6 +240,164 @@ class DeliveryRouteController extends AbstractController
     }
 
     /**
+     * Manually insert a stop at the given ordinal; existing stops at/after that position shift +1.
+     */
+    #[Route(
+        '/{id}/orders',
+        name: 'api_admin_routes_add_order',
+        methods: ['POST'],
+        requirements: ['id' => '\d+'],
+    )]
+    public function addOrder(int $id, Request $request): JsonResponse
+    {
+        $route = $this->routes->find($id);
+        if (!$route instanceof DeliveryRoute) {
+            return $this->json(['error' => 'Route not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if ($route->isStarted()) {
+            return $this->json([
+                'error' => 'Orders cannot be added after the route has started',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        if (!$this->googleMaps->isConfigured()) {
+            return $this->json([
+                'error' => 'GOOGLE_MAPS_API_KEY is not configured',
+            ], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+
+        $payload = $request->toArray();
+
+        $positionRaw = $payload['position'] ?? null;
+        if (!\is_int($positionRaw) && !(\is_string($positionRaw) && ctype_digit($positionRaw))) {
+            return $this->json(['error' => 'position is required and must be an integer >= 1'], Response::HTTP_BAD_REQUEST);
+        }
+        $position = (int) $positionRaw;
+        if ($position < 1) {
+            return $this->json(['error' => 'position must be an integer >= 1'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $clientNameRaw = $payload['clientName'] ?? null;
+        if (!\is_string($clientNameRaw) || '' === trim($clientNameRaw)) {
+            return $this->json(['error' => 'clientName is required'], Response::HTTP_BAD_REQUEST);
+        }
+        $clientName = trim($clientNameRaw);
+
+        $phone = null;
+        if (\array_key_exists('phone', $payload) && null !== $payload['phone'] && '' !== $payload['phone']) {
+            if (!\is_string($payload['phone'])) {
+                return $this->json(['error' => 'phone must be a string or null'], Response::HTTP_BAD_REQUEST);
+            }
+            $phone = trim($payload['phone']);
+            if ('' === $phone) {
+                $phone = null;
+            }
+        }
+
+        $email = null;
+        if (\array_key_exists('email', $payload) && null !== $payload['email'] && '' !== $payload['email']) {
+            if (!\is_string($payload['email'])) {
+                return $this->json(['error' => 'email must be a string or null'], Response::HTTP_BAD_REQUEST);
+            }
+            $email = trim($payload['email']);
+            if ('' === $email) {
+                $email = null;
+            }
+        }
+
+        $unloadMinutes = DeliveryOrder::UNLOADING_DURATION_DEFAULT;
+        if (\array_key_exists('unloadingDurationMinutes', $payload) && null !== $payload['unloadingDurationMinutes'] && '' !== $payload['unloadingDurationMinutes']) {
+            $minutesRaw = $payload['unloadingDurationMinutes'];
+            if (!\is_int($minutesRaw) && !(\is_string($minutesRaw) && is_numeric($minutesRaw))) {
+                return $this->json([
+                    'error' => sprintf(
+                        'unloadingDurationMinutes must be an integer between %d and %d',
+                        DeliveryOrder::UNLOADING_DURATION_MIN,
+                        DeliveryOrder::UNLOADING_DURATION_MAX,
+                    ),
+                ], Response::HTTP_BAD_REQUEST);
+            }
+            $unloadMinutes = (int) $minutesRaw;
+            if (
+                $unloadMinutes < DeliveryOrder::UNLOADING_DURATION_MIN
+                || $unloadMinutes > DeliveryOrder::UNLOADING_DURATION_MAX
+            ) {
+                return $this->json([
+                    'error' => sprintf(
+                        'unloadingDurationMinutes must be between %d and %d',
+                        DeliveryOrder::UNLOADING_DURATION_MIN,
+                        DeliveryOrder::UNLOADING_DURATION_MAX,
+                    ),
+                ], Response::HTTP_BAD_REQUEST);
+            }
+        }
+
+        $weightKg = null;
+        if (\array_key_exists('weightKg', $payload) && null !== $payload['weightKg'] && '' !== $payload['weightKg']) {
+            if (!is_numeric($payload['weightKg'])) {
+                return $this->json(['error' => 'weightKg must be a number or null'], Response::HTTP_BAD_REQUEST);
+            }
+            $weightKg = (float) $payload['weightKg'];
+            if ($weightKg < 0) {
+                return $this->json(['error' => 'weightKg must be >= 0'], Response::HTTP_BAD_REQUEST);
+            }
+        }
+
+        $products = [];
+        if (\array_key_exists('products', $payload) && null !== $payload['products']) {
+            if (!\is_array($payload['products'])) {
+                return $this->json(['error' => 'products must be an array of strings'], Response::HTTP_BAD_REQUEST);
+            }
+            foreach ($payload['products'] as $productIndex => $product) {
+                if (!\is_string($product)) {
+                    return $this->json([
+                        'error' => sprintf('products[%s] must be a string', (string) $productIndex),
+                    ], Response::HTTP_BAD_REQUEST);
+                }
+                $trimmed = trim($product);
+                if ('' !== $trimmed) {
+                    $products[] = $trimmed;
+                }
+            }
+        }
+
+        /** @var list<DeliveryOrder> $shiftedOrders */
+        $shiftedOrders = [];
+        foreach ($route->getOrders() as $existing) {
+            if ($existing->getPosition() >= $position) {
+                $existing->setPosition($existing->getPosition() + 1);
+                $shiftedOrders[] = $existing;
+            }
+        }
+
+        $order = (new DeliveryOrder())
+            ->setPosition($position)
+            ->setClientName($clientName)
+            ->setPhone($phone)
+            ->setEmail($email)
+            ->setUnloadingDurationMinutes($unloadMinutes)
+            ->setWeightKg($weightKg)
+            ->setProducts($products);
+
+        $addressResult = $this->applyOrderAddress($order, $payload, '0');
+        if ($addressResult instanceof JsonResponse) {
+            return $addressResult;
+        }
+
+        $route->addOrder($order);
+        $this->metrics->rebuild($route);
+        $this->em->flush();
+
+        foreach ($shiftedOrders as $shifted) {
+            $this->realtime->publishOrderUpdated($shifted);
+        }
+        $this->realtime->publishOrderUpdated($order);
+
+        return $this->json(['route' => $route->toArray()], Response::HTTP_CREATED);
+    }
+
+    /**
      * Download the route completion PDF (same layout as the imported route report).
      * Optional query: format=html to preview the Twig markup in a browser.
      */
@@ -556,15 +714,15 @@ class DeliveryRouteController extends AbstractController
         }
 
         $addressChanged = false;
-        /** @var list<DeliveryOrder> $ordersWithCommentUpdates */
-        $ordersWithCommentUpdates = [];
+        /** @var list<DeliveryOrder> $ordersWithRealtimeUpdates */
+        $ordersWithRealtimeUpdates = [];
         if (\array_key_exists('orders', $payload)) {
             $ordersResult = $this->applyOrderUpdates($route, $payload['orders']);
             if ($ordersResult instanceof JsonResponse) {
                 return $ordersResult;
             }
             $addressChanged = (bool) ($ordersResult['addressChanged'] ?? false);
-            $ordersWithCommentUpdates = $ordersResult['commentUpdatedOrders'] ?? [];
+            $ordersWithRealtimeUpdates = $ordersResult['realtimeUpdatedOrders'] ?? [];
         }
 
         if (($originChanged || $addressChanged) && $this->googleMaps->isConfigured()) {
@@ -573,7 +731,7 @@ class DeliveryRouteController extends AbstractController
 
         $this->em->flush();
 
-        foreach ($ordersWithCommentUpdates as $updatedOrder) {
+        foreach ($ordersWithRealtimeUpdates as $updatedOrder) {
             $this->realtime->publishOrderUpdated($updatedOrder);
         }
 
@@ -583,7 +741,7 @@ class DeliveryRouteController extends AbstractController
     /**
      * @param mixed $ordersPayload
      *
-     * @return array{addressChanged: bool, commentUpdatedOrders: list<DeliveryOrder>}|JsonResponse
+     * @return array{addressChanged: bool, realtimeUpdatedOrders: list<DeliveryOrder>}|JsonResponse
      */
     private function applyOrderUpdates(DeliveryRoute $route, mixed $ordersPayload): array|JsonResponse
     {
@@ -599,8 +757,8 @@ class DeliveryRouteController extends AbstractController
         }
 
         $addressChanged = false;
-        /** @var list<DeliveryOrder> $commentUpdatedOrders */
-        $commentUpdatedOrders = [];
+        /** @var array<int, DeliveryOrder> $realtimeUpdatedById */
+        $realtimeUpdatedById = [];
 
         foreach ($ordersPayload as $index => $item) {
             if (!\is_array($item)) {
@@ -670,7 +828,7 @@ class DeliveryRouteController extends AbstractController
                 $previousComments = $order->getComments();
                 $order->setComments($commentsResult);
                 if ($previousComments !== $order->getComments()) {
-                    $commentUpdatedOrders[] = $order;
+                    $realtimeUpdatedById[$orderId] = $order;
                 }
             }
 
@@ -683,16 +841,20 @@ class DeliveryRouteController extends AbstractController
             }
 
             if (\array_key_exists('returnDestination', $item)) {
+                $previousDestination = $order->getReturnDestination();
                 $destinationResult = $this->applyReturnDestination($order, $item['returnDestination'], (string) $index);
                 if ($destinationResult instanceof JsonResponse) {
                     return $destinationResult;
+                }
+                if ($previousDestination !== $order->getReturnDestination()) {
+                    $realtimeUpdatedById[$orderId] = $order;
                 }
             }
         }
 
         return [
             'addressChanged' => $addressChanged,
-            'commentUpdatedOrders' => $commentUpdatedOrders,
+            'realtimeUpdatedOrders' => array_values($realtimeUpdatedById),
         ];
     }
 

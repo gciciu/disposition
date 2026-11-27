@@ -85,10 +85,7 @@ class RouteCompletionPdfBuilder
             $extra = $this->resolveStopExtra($order, $stopExtras);
             $stops[] = $this->buildStop($order, $extra);
 
-            if (
-                DeliveryOrderStatus::Refused === $order->getStatus()
-                || $order->isExchange()
-            ) {
+            if ($order->needsReturnDestination()) {
                 $returns[] = $this->buildReturn(
                     $order,
                     $extra['customerRemark'] ?? $order->getCommentsText(),
@@ -155,7 +152,7 @@ class RouteCompletionPdfBuilder
             address: AddressFormatter::withoutCountry(
                 $order->getFormattedAddress() ?? $order->getAddress(),
             ) ?? $order->getAddress(),
-            products: $order->getProducts(),
+            products: $order->returnedProducts(),
             deliveredLabel: $this->returnDeliveredLabel($order),
             remark: $customerRemark,
         );

@@ -925,11 +925,17 @@ body {
 
 .stop-card__mail-btn--sent {
   color: #15803d;
+  cursor: default;
 }
 
 .stop-card__mail-btn--missing {
   color: #94a3b8;
   cursor: default;
+}
+
+.stop-card__mail-btn--sending {
+  cursor: wait;
+  opacity: 1;
 }
 
 .stop-card__edit-btn:hover,
@@ -944,11 +950,26 @@ body {
   cursor: default;
 }
 
+.stop-card__mail-btn--sending:disabled {
+  opacity: 1;
+  cursor: wait;
+}
+
 .stop-card__edit-btn svg,
 .stop-card__map-btn svg,
 .stop-card__mail-btn svg {
   width: 1.05rem;
   height: 1.05rem;
+}
+
+@keyframes stop-card-mail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stop-card__mail-btn-spinner {
+  animation: stop-card-mail-spin 0.75s linear infinite;
 }
 
 .arrival-field {
@@ -1022,6 +1043,11 @@ body {
 .stop-card__badge--exchange {
   background: rgba(124, 58, 237, 0.12);
   color: #6d28d9;
+}
+
+.stop-card__badge--return {
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
 }
 
 .sheet-backdrop {

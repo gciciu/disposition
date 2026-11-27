@@ -168,6 +168,21 @@ const closedStatusLabel = (order: RouteOrder) => {
   return "";
 };
 
+const returnDestinationLabel = (order: RouteOrder) => {
+  switch (order.returnDestination) {
+    case "warehouse_return":
+      return t("delivery.returnDestinationWarehouseReturn");
+    case "warehouse_shelf":
+      return t("delivery.returnDestinationWarehouseShelf");
+    case "container":
+      return t("delivery.returnDestinationContainer");
+    case "office":
+      return t("delivery.returnDestinationOffice");
+    default:
+      return null;
+  }
+};
+
 const pendingOrders = computed(
   () => detail.value?.orders.filter((order) => !isClosed(order)) ?? [],
 );
@@ -702,6 +717,9 @@ const mailButtonTitle = (order: RouteOrder) => {
   if (!hasCustomerEmail(order)) {
     return t("routes.announcementMissingEmail");
   }
+  if (sendingAnnouncementId.value === order.id) {
+    return t("routes.announcementSending");
+  }
   if (announcementSent(order)) {
     return t("routes.announcementSent");
   }
@@ -1104,13 +1122,42 @@ watch(
                       :class="{
                         'stop-card__mail-btn--sent': announcementSent(order),
                         'stop-card__mail-btn--missing': !hasCustomerEmail(order),
+                        'stop-card__mail-btn--sending':
+                          sendingAnnouncementId === order.id,
                       }"
                       :aria-label="mailButtonTitle(order)"
                       :title="mailButtonTitle(order)"
                       :disabled="!canSendAnnouncement(order)"
                       @click="sendAnnouncementEmail(order, $event)"
                     >
-                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                      <svg
+                        v-if="sendingAnnouncementId === order.id"
+                        class="stop-card__mail-btn-spinner"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                      >
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="8"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-dasharray="36 20"
+                        />
+                      </svg>
+                      <svg
+                        v-else-if="announcementSent(order)"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M20,8L12,13L4,8V6L12,11L20,6M20,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V6C22,4.89 21.1,4 20,4Z"
+                        />
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" aria-hidden="true" fill="none">
                         <rect
                           x="3.5"
                           y="5.5"
@@ -1141,6 +1188,13 @@ watch(
                         :class="{ 'stop-card__badge--refused': isRefused(order) }"
                       >
                         {{ closedStatusLabel(order) }}
+                      </span>
+                      <span
+                        v-if="returnDestinationLabel(order)"
+                        class="stop-card__badge stop-card__badge--return"
+                        :title="t('delivery.returnDestination')"
+                      >
+                        {{ returnDestinationLabel(order) }}
                       </span>
                     </div>
                   </div>
@@ -1246,13 +1300,42 @@ watch(
                     :class="{
                       'stop-card__mail-btn--sent': announcementSent(order),
                       'stop-card__mail-btn--missing': !hasCustomerEmail(order),
+                      'stop-card__mail-btn--sending':
+                        sendingAnnouncementId === order.id,
                     }"
                     :aria-label="mailButtonTitle(order)"
                     :title="mailButtonTitle(order)"
                     :disabled="!canSendAnnouncement(order)"
                     @click="sendAnnouncementEmail(order, $event)"
                   >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                    <svg
+                      v-if="sendingAnnouncementId === order.id"
+                      class="stop-card__mail-btn-spinner"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      fill="none"
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="8"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-dasharray="36 20"
+                      />
+                    </svg>
+                    <svg
+                      v-else-if="announcementSent(order)"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M20,8L12,13L4,8V6L12,11L20,6M20,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V6C22,4.89 21.1,4 20,4Z"
+                      />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" aria-hidden="true" fill="none">
                       <rect
                         x="3.5"
                         y="5.5"
@@ -1276,6 +1359,13 @@ watch(
                     class="stop-card__badge stop-card__badge--exchange"
                   >
                     {{ t("delivery.exchange") }}
+                  </span>
+                  <span
+                    v-if="returnDestinationLabel(order)"
+                    class="stop-card__badge stop-card__badge--return"
+                    :title="t('delivery.returnDestination')"
+                  >
+                    {{ returnDestinationLabel(order) }}
                   </span>
                 </div>
               </div>
